@@ -1,0 +1,22 @@
+# Local dev database only. Not used for deployment.
+services:
+  db:
+    image: postgres:17
+    container_name: financial-tracker-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: financial_tracker_dev
+    ports:
+      - '5432:5432'
+    volumes:
+      - financial-tracker-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres -d financial_tracker_dev']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  financial-tracker-pgdata:
