@@ -8,6 +8,7 @@ import {
 import * as controller from './credit-loans.controller.js';
 import {
   createCreditLoanSchema,
+  repaymentParamsSchema,
   idParamSchema,
   listCreditLoansQuerySchema,
   repayCreditLoanSchema,
@@ -44,6 +45,11 @@ creditLoansRoutes.delete(
   '/:id',
   validateParams(idParamSchema),
   asyncHandler(controller.deleteLoan),
+);
+creditLoansRoutes.delete(
+  '/:id/repayments/:transactionId',
+  validateParams(repaymentParamsSchema),
+  asyncHandler(controller.deleteRepayment),
 );
 creditLoansRoutes.post(
   '/:id/repay',

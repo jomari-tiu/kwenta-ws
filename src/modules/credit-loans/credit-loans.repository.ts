@@ -148,6 +148,27 @@ export async function listRepayments(
     .orderBy(desc(transactions.txnDate));
 }
 
+/**
+ * Delete a repayment, but ONLY if it really belongs to this loan — the id comes
+ * from the URL, so without the loanId check any transaction could be deleted
+ * through this route.
+ */
+export async function deleteRepayment(
+  loanId: string,
+  transactionId: string,
+): Promise<boolean> {
+  const rows = await db
+    .delete(transactions)
+    .where(
+      and(
+        eq(transactions.id, transactionId),
+        eq(transactions.creditLoanId, loanId),
+      ),
+    )
+    .returning({ id: transactions.id });
+  return rows.length > 0;
+}
+
 export type TCreditLoanSummary = {
   openCount: number;
   overdueCount: number;

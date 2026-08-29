@@ -36,6 +36,17 @@ export async function deleteLoan(req: Request, res: Response): Promise<void> {
   res.json(await service.remove(paramId(req)));
 }
 
+export async function deleteRepayment(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  const { id, transactionId } = req.params as {
+    id: string;
+    transactionId: string;
+  };
+  res.json(await service.removeRepayment(id, transactionId));
+}
+
 export async function postRepay(req: Request, res: Response): Promise<void> {
   res.json(
     await service.repay(paramId(req), bodyOf<TRepayCreditLoanBody>(req)),

@@ -18,6 +18,12 @@ export type TTransaction = {
    * showing the same money twice.
    */
   installmentPaymentId: string | null;
+  /**
+   * Set when this expense is a credit-loan repayment. Such a row is READ-ONLY
+   * in the transactions module: it belongs to the loan, and the loan's balance
+   * is derived from it.
+   */
+  creditLoanId: string | null;
   recurringRuleId: string | null;
   isEdited: boolean;
   category: TTransactionRef;

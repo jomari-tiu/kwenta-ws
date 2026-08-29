@@ -29,6 +29,7 @@ const listColumns = {
   note: transactions.note,
   source: transactions.source,
   installmentPaymentId: transactions.installmentPaymentId,
+  creditLoanId: transactions.creditLoanId,
   recurringRuleId: transactions.recurringRuleId,
   editedAt: transactions.editedAt,
   categoryId: categories.id,
@@ -42,6 +43,7 @@ const listColumns = {
 };
 
 export type TTransactionJoinedRow = {
+  creditLoanId: string | null;
   id: string;
   type: 'income' | 'expense' | 'transfer';
   amountCentavos: number;

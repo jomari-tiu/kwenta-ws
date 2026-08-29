@@ -26,6 +26,7 @@ export function toDto(row: repo.TTransactionJoinedRow): TTransaction {
     note: row.note,
     source: row.source,
     installmentPaymentId: row.installmentPaymentId,
+    creditLoanId: row.creditLoanId,
     recurringRuleId: row.recurringRuleId,
     isEdited: row.editedAt !== null,
     category: {
@@ -128,6 +129,14 @@ export async function update(
   const existing = await repo.findById(id);
   if (!existing) throw notFound('Transaction not found');
 
+  // A repayment belongs to its loan — editing the amount here would silently
+  // move the loan's outstanding balance from a screen that shows no loan.
+  if (existing.creditLoanId) {
+    throw conflict(
+      'This expense belongs to a credit loan. Edit it from the Credit Loans module.',
+    );
+  }
+
   const nextType = body.type ?? (existing.type as 'income' | 'expense');
   const nextCategoryId = body.categoryId ?? existing.categoryId;
   const nextAccountId = body.accountId ?? existing.accountId;
@@ -154,6 +163,12 @@ export async function remove(id: string): Promise<void> {
   if (existing.installmentPaymentId) {
     throw conflict(
       'This expense is linked to an installment payment. Unmark the payment as paid instead.',
+    );
+  }
+
+  if (existing.creditLoanId) {
+    throw conflict(
+      'This expense is a credit-loan repayment. Remove it from the Credit Loans module instead.',
     );
   }
 

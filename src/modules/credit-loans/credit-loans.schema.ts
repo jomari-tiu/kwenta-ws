@@ -39,6 +39,11 @@ export const listCreditLoansQuerySchema = z.object({
 
 export const idParamSchema = z.object({ id: z.uuid('Invalid id') });
 
+export const repaymentParamsSchema = z.object({
+  id: z.uuid('Invalid id'),
+  transactionId: z.uuid('Invalid transaction id'),
+});
+
 export type TCreateCreditLoanBody = z.infer<typeof createCreditLoanSchema>;
 export type TUpdateCreditLoanBody = z.infer<typeof updateCreditLoanSchema>;
 export type TRepayCreditLoanBody = z.infer<typeof repayCreditLoanSchema>;

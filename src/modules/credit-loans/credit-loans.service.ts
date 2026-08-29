@@ -212,6 +212,20 @@ export async function remove(
   return { deletedLoanId: id, keptTransactionCount };
 }
 
+/** Undo a repayment. The loan's balance is derived, so it simply goes back up. */
+export async function removeRepayment(
+  id: string,
+  transactionId: string,
+): Promise<TCreditLoan & { repayments: repo.TLoanRepayment[] }> {
+  const loan = await repo.findLoanById(id);
+  if (!loan) throw notFound('Credit loan not found');
+
+  const deleted = await repo.deleteRepayment(id, transactionId);
+  if (!deleted) throw notFound('Repayment not found on this loan');
+
+  return getById(id);
+}
+
 export async function repay(
   id: string,
   body: TRepayCreditLoanBody,
