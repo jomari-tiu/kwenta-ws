@@ -9,6 +9,7 @@ import type {
   TCreateAccountBody,
   TListAccountsQuery,
   TUpdateAccountBody,
+  TAccountHistoryQuery,
 } from './accounts.schema.js';
 import type { TAccount, TDeleteAccountResult } from './accounts.types.js';
 
@@ -126,4 +127,31 @@ export async function restore(id: string): Promise<TAccount> {
   const row = await repo.restoreAccount(id);
   if (!row) throw notFound('Account not found');
   return toDto(row);
+}
+
+/**
+ * One account's ledger with a running balance.
+ *
+ * The opening balance is passed into the window so the first row reads as the
+ * real balance at that point, not as "movement since zero".
+ */
+export async function history(
+  id: string,
+  query: TAccountHistoryQuery,
+): Promise<TPaginatedResult<repo.TAccountHistoryRow>> {
+  const account = await repo.findAccountById(id);
+  if (!account) throw notFound('Account not found');
+
+  const { page, size, limit, offset } = resolvePagination(
+    query.pageNumber,
+    query.pageSize,
+  );
+  const { rows, total } = await repo.historyForAccount(
+    id,
+    account.openingBalanceCentavos,
+    limit,
+    offset,
+  );
+
+  return { data: rows, meta: buildPaginationMeta(total, page, size) };
 }

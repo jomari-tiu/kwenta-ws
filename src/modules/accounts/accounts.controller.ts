@@ -2,6 +2,7 @@ import type { Request, Response } from 'express';
 import { bodyOf, paramId, queryOf } from '../../common/validate.js';
 import * as service from './accounts.service.js';
 import type {
+  TAccountHistoryQuery,
   TCreateAccountBody,
   TListAccountsQuery,
   TUpdateAccountBody,
@@ -39,4 +40,13 @@ export async function postRestoreAccount(
   res: Response,
 ): Promise<void> {
   res.json(await service.restore(paramId(req)));
+}
+
+export async function getAccountHistory(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  res.json(
+    await service.history(paramId(req), queryOf<TAccountHistoryQuery>(req)),
+  );
 }

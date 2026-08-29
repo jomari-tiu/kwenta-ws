@@ -33,8 +33,15 @@ export const listAccountsQuerySchema = z.object({
   pageSize: z.coerce.number().int().positive().optional(),
 });
 
+export const accountHistoryQuerySchema = z.object({
+  pageNumber: z.coerce.number().int().positive().optional(),
+  pageSize: z.coerce.number().int().positive().max(200).optional(),
+});
+
 export const idParamSchema = z.object({ id: z.uuid('Invalid id') });
 
 export type TCreateAccountBody = z.infer<typeof createAccountSchema>;
 export type TUpdateAccountBody = z.infer<typeof updateAccountSchema>;
 export type TListAccountsQuery = z.infer<typeof listAccountsQuerySchema>;
+
+export type TAccountHistoryQuery = z.infer<typeof accountHistoryQuerySchema>;

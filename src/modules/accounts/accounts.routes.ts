@@ -7,6 +7,7 @@ import {
 } from '../../common/validate.js';
 import * as controller from './accounts.controller.js';
 import {
+  accountHistoryQuerySchema,
   createAccountSchema,
   idParamSchema,
   listAccountsQuerySchema,
@@ -33,6 +34,12 @@ accountsRoutes.get(
   '/:id',
   validateParams(idParamSchema),
   asyncHandler(controller.getAccount),
+);
+accountsRoutes.get(
+  '/:id/history',
+  validateParams(idParamSchema),
+  validateQuery(accountHistoryQuerySchema),
+  asyncHandler(controller.getAccountHistory),
 );
 accountsRoutes.patch(
   '/:id',
