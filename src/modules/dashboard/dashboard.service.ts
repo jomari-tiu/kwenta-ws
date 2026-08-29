@@ -31,6 +31,14 @@ export type TDashboardSummary = {
   netCentavos: number;
   savingsRatePercent: number | null;
   netBalanceAllTimeCentavos: number;
+  /**
+   * Money you could actually spend right now: the balance of every live
+   * account EXCEPT credit cards, whose negative balance is debt owed rather
+   * than cash on hand.
+   */
+  disposableCentavos: number;
+  /** Money currently sitting in investment pots — real, but not spendable. */
+  investedCentavos: number;
   series: TSeriesPoint[];
   topCategories: repo.TCategoryTotal[];
   accountBalances: {
@@ -131,6 +139,12 @@ export async function summary(
               100,
           ),
     netBalanceAllTimeCentavos: allTime.incomeCentavos - allTime.expenseCentavos,
+    // Credit cards are excluded on purpose. Their balance is what you OWE, and
+    // folding a debt into "money I can spend" understates both.
+    disposableCentavos: balances
+      .filter((a) => a.kind !== 'credit_card')
+      .reduce((sum, a) => sum + a.currentBalanceCentavos, 0),
+    investedCentavos: funds.totalNetContributedCentavos,
     series: fillBuckets(seriesRows, w.from, w.to, w.granularity),
     topCategories: topCategories.slice(0, 8),
     accountBalances: balances.map((a) => ({
