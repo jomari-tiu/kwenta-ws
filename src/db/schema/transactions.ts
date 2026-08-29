@@ -13,6 +13,7 @@ import { accounts } from './accounts.js';
 import { categories } from './categories.js';
 import { installmentPayments } from './installments.js';
 import { creditLoans } from './credit-loans.js';
+import { investments } from './investments.js';
 import { recurringRules } from './recurring.js';
 
 /**
@@ -78,6 +79,15 @@ export const transactions = pgTable(
     creditLoanId: uuid('credit_loan_id').references(() => creditLoans.id, {
       onDelete: 'set null',
     }),
+    /**
+     * Set when this row moves money into or out of an investment. An EXPENSE so
+     * tagged is a contribution, an INCOME so tagged is a withdrawal, and the
+     * fund's balance is the difference — so there is no contributions table to
+     * drift out of sync.
+     */
+    investmentId: uuid('investment_id').references(() => investments.id, {
+      onDelete: 'set null',
+    }),
     /** Set when a generated row is hand-edited; protects it from bulk updates. */
     editedAt: timestamp('edited_at', { withTimezone: true }),
     createdAt: createdAt(),
@@ -89,6 +99,7 @@ export const transactions = pgTable(
     index('transactions_category_date_idx').on(t.categoryId, t.txnDate),
     index('transactions_account_date_idx').on(t.accountId, t.txnDate),
     index('transactions_credit_loan_idx').on(t.creditLoanId),
+    index('transactions_investment_idx').on(t.investmentId),
     // Deliberately NOT partial. Postgres treats NULLs as distinct by default,
     // so the many manual rows with (null, null) never collide — and a plain
     // unique index lets ON CONFLICT (recurring_rule_id, occurrence_date) work

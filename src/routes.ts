@@ -7,6 +7,7 @@ import { categoriesRoutes } from './modules/categories/categories.routes.js';
 import { creditLoansRoutes } from './modules/credit-loans/credit-loans.routes.js';
 import { dashboardRoutes } from './modules/dashboard/dashboard.routes.js';
 import { installmentsRoutes } from './modules/installments/installments.routes.js';
+import { investmentsRoutes } from './modules/investments/investments.routes.js';
 import { recurringRoutes } from './modules/recurring/recurring.routes.js';
 import { transactionsRoutes } from './modules/transactions/transactions.routes.js';
 
@@ -24,6 +25,7 @@ apiRouter.use('/transactions', transactionsRoutes);
 apiRouter.use('/calendar', calendarRoutes);
 apiRouter.use('/installment-plans', installmentsRoutes);
 apiRouter.use('/credit-loans', creditLoansRoutes);
+apiRouter.use('/investments', investmentsRoutes);
 apiRouter.use('/recurring-rules', recurringRoutes);
 apiRouter.use('/budgets', budgetsRoutes);
 apiRouter.use('/dashboard', dashboardRoutes);

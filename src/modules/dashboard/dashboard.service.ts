@@ -6,6 +6,7 @@ import {
 import * as accountsService from '../accounts/accounts.service.js';
 import * as budgetsService from '../budgets/budgets.service.js';
 import * as creditLoansService from '../credit-loans/credit-loans.service.js';
+import * as investmentsService from '../investments/investments.service.js';
 import * as installmentsService from '../installments/installments.service.js';
 import * as repo from './dashboard.repository.js';
 import {
@@ -52,6 +53,16 @@ export type TDashboardSummary = {
     totalRemainingCentavos: number;
     nextDueDate: string | null;
   };
+  investments: {
+    activeCount: number;
+    fundedCount: number;
+    untargetedCount: number;
+    totalNetContributedCentavos: number;
+    /** Null when nothing is valued — a ₱0 total would read as a total loss. */
+    totalCurrentValueCentavos: number | null;
+    totalGainCentavos: number | null;
+    nextTargetDate: string | null;
+  };
   creditLoans: {
     openCount: number;
     overdueCount: number;
@@ -69,7 +80,7 @@ export async function summary(
   const anchor = anchorInput ?? todayInAppTz();
   const w = windowFor(period, anchor);
 
-  // Five independent reads in parallel; on a warm local DB this is noise.
+  // Nine independent reads in parallel; on a warm local DB this is noise.
   const [
     totals,
     seriesRows,
@@ -79,6 +90,7 @@ export async function summary(
     inst,
     budgets,
     loans,
+    funds,
   ] = await Promise.all([
     repo.totalsBetween(w.from, w.to),
     repo.series(w.from, w.to, w.granularity),
@@ -88,6 +100,7 @@ export async function summary(
     installmentsService.summary(),
     budgetsService.forMonth(monthKeyOf(anchor)),
     creditLoansService.summary(),
+    investmentsService.summary(),
   ]);
 
   const net = totals.incomeCentavos - totals.expenseCentavos;
@@ -127,6 +140,15 @@ export async function summary(
         percentUsed: b.percentUsed,
         isOverBudget: b.isOverBudget,
       })),
+    investments: {
+      activeCount: funds.activeCount,
+      fundedCount: funds.fundedCount,
+      untargetedCount: funds.untargetedCount,
+      totalNetContributedCentavos: funds.totalNetContributedCentavos,
+      totalCurrentValueCentavos: funds.totalCurrentValueCentavos,
+      totalGainCentavos: funds.totalGainCentavos,
+      nextTargetDate: funds.nextTargetDate,
+    },
     creditLoans: {
       openCount: loans.openCount,
       overdueCount: loans.overdueCount,

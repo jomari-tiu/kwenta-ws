@@ -15,6 +15,13 @@
       "when": 1787983848133,
       "tag": "0001_minor_wallow",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1787988673869,
+      "tag": "0002_loud_kingpin",
+      "breakpoints": true
     }
   ]
 }

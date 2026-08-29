@@ -9,6 +9,7 @@ import {
 import { badRequest } from '../../common/errors.js';
 import * as creditLoansRepo from '../credit-loans/credit-loans.repository.js';
 import * as installmentsRepo from '../installments/installments.repository.js';
+import * as investmentsRepo from '../investments/investments.repository.js';
 import {
   deriveStatus,
   type TDerivedStatus,
@@ -51,6 +52,21 @@ export type TCalendarLoanDue = {
   isOverdue: boolean;
 };
 
+/**
+ * A savings goal landing on this day. Deliberately NOT a due: a goal you have
+ * not reached is a goal you are behind on, not a debt, so it never reddens the
+ * day and there is no "overdue" flag here to accidentally wire up later.
+ */
+export type TCalendarFundTarget = {
+  id: string;
+  name: string;
+  provider: string | null;
+  targetDate: string;
+  targetCentavos: number | null;
+  netContributedCentavos: number;
+  isReached: boolean;
+};
+
 export type TCalendarProjection = {
   ruleId: string;
   ruleName: string;
@@ -73,6 +89,7 @@ export type TCalendarDay = {
   entries: TTransaction[];
   dues: TCalendarDue[];
   loanDues: TCalendarLoanDue[];
+  fundTargets: TCalendarFundTarget[];
   projections: TCalendarProjection[];
 };
 
@@ -107,15 +124,18 @@ export async function getMonth(monthKey: string): Promise<TCalendarMonth> {
   const gridStart = grid[0]!;
   const gridEnd = grid[41]!;
 
-  const [entries, dues, rules, loanDues, repaidByLoan] = await Promise.all([
-    txnRepo.listJoinedBetween(gridStart, gridEnd),
-    installmentsRepo.listDuesBetween(gridStart, gridEnd),
-    recurringRepo.listMaterializable(),
-    // Loans with NO due date are simply absent here — they can never be
-    // overdue and have no day to sit on.
-    creditLoansRepo.listDuesBetween(gridStart, gridEnd),
-    creditLoansRepo.repaidByLoan(),
-  ]);
+  const [entries, dues, rules, loanDues, repaidByLoan, fundTargets, fundFlows] =
+    await Promise.all([
+      txnRepo.listJoinedBetween(gridStart, gridEnd),
+      installmentsRepo.listDuesBetween(gridStart, gridEnd),
+      recurringRepo.listMaterializable(),
+      // Loans with NO due date are simply absent here — they can never be
+      // overdue and have no day to sit on.
+      creditLoansRepo.listDuesBetween(gridStart, gridEnd),
+      creditLoansRepo.repaidByLoan(),
+      investmentsRepo.listTargetsBetween(gridStart, gridEnd),
+      investmentsRepo.flowsByInvestment(),
+    ]);
 
   const entriesByDay = new Map<string, TTransaction[]>();
   for (const row of entries) {
@@ -164,6 +184,24 @@ export async function getMonth(monthKey: string): Promise<TCalendarMonth> {
     loanDuesByDay.set(l.dueDate, list);
   }
 
+  const fundTargetsByDay = new Map<string, TCalendarFundTarget[]>();
+  for (const t of fundTargets) {
+    const flow = fundFlows.get(t.id) ?? { contributed: 0, withdrawn: 0 };
+    const netContributedCentavos = flow.contributed - flow.withdrawn;
+    const list = fundTargetsByDay.get(t.targetDate) ?? [];
+    list.push({
+      id: t.id,
+      name: t.name,
+      provider: t.provider,
+      targetDate: t.targetDate,
+      targetCentavos: t.targetCentavos,
+      netContributedCentavos,
+      isReached:
+        t.targetCentavos !== null && netContributedCentavos >= t.targetCentavos,
+    });
+    fundTargetsByDay.set(t.targetDate, list);
+  }
+
   const projectionsByDay = new Map<string, TCalendarProjection[]>();
   for (const { rule, date } of projectFuture(
     rules,
@@ -192,6 +230,7 @@ export async function getMonth(monthKey: string): Promise<TCalendarMonth> {
     const dayDues = duesByDay.get(date) ?? [];
     const dayProjections = projectionsByDay.get(date) ?? [];
     const dayLoanDues = loanDuesByDay.get(date) ?? [];
+    const dayFundTargets = fundTargetsByDay.get(date) ?? [];
     const inMonth = monthKeyOf(date) === monthKey;
 
     const incomeCentavos = dayEntries
@@ -229,6 +268,7 @@ export async function getMonth(monthKey: string): Promise<TCalendarMonth> {
       entries: dayEntries,
       dues: dayDues,
       loanDues: dayLoanDues,
+      fundTargets: dayFundTargets,
       projections: dayProjections,
     };
   });
