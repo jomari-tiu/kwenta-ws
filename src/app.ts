@@ -46,6 +46,9 @@ export function createApp(): Express {
 
   app.use(helmet());
   app.use(cors(buildCorsOptions()));
+  // A whole-database import is far larger than any normal request. Mounted
+  // BEFORE the global parser, which then skips a body already read.
+  app.use('/api/v1/data/import', express.json({ limit: '25mb' }));
   app.use(express.json({ limit: '100kb' }));
   app.use(requestLogger);
   app.use(globalLimiter);

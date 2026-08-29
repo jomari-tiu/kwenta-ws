@@ -62,3 +62,40 @@ Deployment is deliberately not set up. `render.yaml` is absent by design; add it
 only if that changes. Note that several details assume a **single instance**:
 migrate-on-start, the in-memory recurring-catchup throttle, and the advisory
 lock around materialization.
+
+## Moving your data to another server
+
+Export and import cover the whole database in one file, so a local instance can
+be lifted into production without retyping anything.
+
+```
+GET  /api/v1/data/export              -> kwenta-backup-YYYY-MM-DD.json
+POST /api/v1/data/import?mode=empty   -> refuses unless the target is empty
+POST /api/v1/data/import?mode=replace -> wipes the target first
+```
+
+Both are behind auth, and the UI for them is the **Backup** page under Setup.
+
+**Procedure**
+
+1. On the old server, Backup → *Download backup*.
+2. Stand up the new server and run `npm run db:migrate` then `npm run db:seed`.
+   The seed creates the owner from `OWNER_PASSWORD`; it also inserts starter
+   categories and accounts, so import with `mode=replace` to clear them.
+3. Log in on the new server, Backup → *Choose a backup file*.
+
+**What it does and does not carry**
+
+- Rows keep their original UUIDs, so every reference between them survives.
+  This is why the target must be empty or replaced — the import never remaps ids
+  and would collide with an existing row.
+- The whole import is ONE transaction. A failure part-way leaves the target
+  exactly as it was rather than half-migrated.
+- `users` is deliberately excluded. That row holds an argon2 password hash and a
+  token version; production sets its own password from `OWNER_PASSWORD`. A
+  migration moves the money, not the login.
+- `formatVersion` is checked on import. A file from a future schema is refused
+  outright instead of being partially loaded.
+- Every plain date in the file was written under the exporting server's
+  `APP_TIMEZONE`, which is recorded in the file as `appTimezone`. Keep the two
+  servers on the same zone or the day a transaction falls on can shift.
