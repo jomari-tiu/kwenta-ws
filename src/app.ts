@@ -27,7 +27,10 @@ function buildCorsOptions(): cors.CorsOptions {
       return cb(new Error('Not allowed by CORS'));
     },
     credentials: false,
-    methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
+    // PUT is load-bearing: the budgets module uses it, and omitting a verb
+    // here fails the browser PREFLIGHT, which surfaces as a bare 'Network
+    // Error' with no status — while curl, which sends no preflight, succeeds.
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
   };
 }
