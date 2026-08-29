@@ -51,6 +51,9 @@ export async function series(
         gte(transactions.txnDate, from),
         lte(transactions.txnDate, to),
         sql`${transactions.type} <> 'transfer'`,
+        // Fund movements are excluded here too, so the chart cannot contradict
+        // the Spending tile above it.
+        sql`${transactions.investmentId} is null`,
       ),
     )
     .groupBy(bucket)
@@ -94,6 +97,9 @@ export async function byCategory(
         eq(transactions.type, type),
         gte(transactions.txnDate, from),
         lte(transactions.txnDate, to),
+        // Otherwise "Savings & Investments" tops the spending list with money
+        // you did not spend, and the rows no longer sum to the Spending tile.
+        sql`${transactions.investmentId} is null`,
       ),
     )
     .groupBy(categories.id, categories.name, categories.icon, categories.color)
@@ -109,14 +115,38 @@ export async function byCategory(
   }));
 }
 
+export type TPeriodTotals = {
+  /** Real income. A fund withdrawal is your own money coming back, not income. */
+  incomeCentavos: number;
+  /** Real spending — money consumed. Excludes anything moved into a fund. */
+  spendingCentavos: number;
+  /** Net moved INTO funds: contributions minus withdrawals. */
+  savedCentavos: number;
+  /** Everything that left the account, savings included. Drives the true net. */
+  expenseCentavos: number;
+};
+
+/**
+ * Money moved into a savings pot is NOT spending — you still have it. Counting
+ * it as an expense makes saving look like consumption and, worse, drags the
+ * savings rate DOWN the more you save.
+ *
+ * The split is structural (`investment_id is not null`) rather than by category
+ * name, so renaming a category cannot silently change what counts as spending.
+ */
 export async function totalsBetween(
   from: TPlainDate,
   to: TPlainDate,
-): Promise<{ incomeCentavos: number; expenseCentavos: number }> {
+): Promise<TPeriodTotals> {
+  const intoFund = sql`${transactions.investmentId} is not null`;
+  const notFund = sql`${transactions.investmentId} is null`;
+
   const rows = await db
     .select({
-      income: sql<string>`coalesce(sum(${transactions.amountCentavos}) filter (where ${transactions.type} = 'income'), 0)`,
-      expense: sql<string>`coalesce(sum(${transactions.amountCentavos}) filter (where ${transactions.type} = 'expense'), 0)`,
+      income: sql<string>`coalesce(sum(${transactions.amountCentavos}) filter (where ${transactions.type} = 'income' and ${notFund}), 0)`,
+      spending: sql<string>`coalesce(sum(${transactions.amountCentavos}) filter (where ${transactions.type} = 'expense' and ${notFund}), 0)`,
+      fundIn: sql<string>`coalesce(sum(${transactions.amountCentavos}) filter (where ${transactions.type} = 'expense' and ${intoFund}), 0)`,
+      fundOut: sql<string>`coalesce(sum(${transactions.amountCentavos}) filter (where ${transactions.type} = 'income' and ${intoFund}), 0)`,
     })
     .from(transactions)
     .where(
@@ -127,9 +157,16 @@ export async function totalsBetween(
       ),
     );
 
+  const income = toCentavos(rows[0]?.income);
+  const spending = toCentavos(rows[0]?.spending);
+  const fundIn = toCentavos(rows[0]?.fundIn);
+  const fundOut = toCentavos(rows[0]?.fundOut);
+
   return {
-    incomeCentavos: toCentavos(rows[0]?.income),
-    expenseCentavos: toCentavos(rows[0]?.expense),
+    incomeCentavos: income,
+    spendingCentavos: spending,
+    savedCentavos: fundIn - fundOut,
+    expenseCentavos: spending + fundIn,
   };
 }
 

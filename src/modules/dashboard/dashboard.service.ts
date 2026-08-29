@@ -22,6 +22,11 @@ export type TDashboardSummary = {
   from: string;
   to: string;
   incomeCentavos: number;
+  /** Money consumed. Excludes anything moved into a savings pot. */
+  spendingCentavos: number;
+  /** Net moved into savings pots this period. */
+  savedCentavos: number;
+  /** Spending + savings — everything that left the account. */
   expenseCentavos: number;
   netCentavos: number;
   savingsRatePercent: number | null;
@@ -111,12 +116,20 @@ export async function summary(
     from: w.from,
     to: w.to,
     incomeCentavos: totals.incomeCentavos,
+    spendingCentavos: totals.spendingCentavos,
+    savedCentavos: totals.savedCentavos,
     expenseCentavos: totals.expenseCentavos,
     netCentavos: net,
+    // What share of income you did NOT spend — money parked in a fund counts as
+    // kept, not spent. Using `net` here would punish you for saving.
     savingsRatePercent:
       totals.incomeCentavos === 0
         ? null
-        : Math.round((net / totals.incomeCentavos) * 100),
+        : Math.round(
+            ((totals.incomeCentavos - totals.spendingCentavos) /
+              totals.incomeCentavos) *
+              100,
+          ),
     netBalanceAllTimeCentavos: allTime.incomeCentavos - allTime.expenseCentavos,
     series: fillBuckets(seriesRows, w.from, w.to, w.granularity),
     topCategories: topCategories.slice(0, 8),
