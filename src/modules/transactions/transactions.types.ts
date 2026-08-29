@@ -7,7 +7,7 @@ export type TTransactionRef = {
 
 export type TTransaction = {
   id: string;
-  type: 'income' | 'expense';
+  type: 'income' | 'expense' | 'transfer';
   amountCentavos: number;
   txnDate: string;
   note: string | null;
@@ -26,8 +26,12 @@ export type TTransaction = {
   creditLoanId: string | null;
   recurringRuleId: string | null;
   isEdited: boolean;
+  /** For a transfer this is a display-only stand-in; the row has no category. */
   category: TTransactionRef;
+  /** Source account. For a transfer, the money LEAVES this one. */
   account: TTransactionRef;
+  /** Destination account — set only on transfers. */
+  transferAccount: TTransactionRef | null;
 };
 
 export type TTransactionSummary = {

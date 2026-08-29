@@ -8,9 +8,11 @@ import {
   ilike,
   inArray,
   lte,
+  or,
   sql,
   type SQL,
 } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/pg-core';
 import { db } from '../../db/client.js';
 import { toCentavos } from '../../common/money.js';
 import type { TPlainDate } from '../../common/date.js';
@@ -21,6 +23,8 @@ export type TTransactionRow = typeof transactions.$inferSelect;
 export type TTransactionInsert = typeof transactions.$inferInsert;
 
 /** The joined row shape the list and day views render directly. */
+const toAccounts = alias(accounts, 'to_accounts');
+
 const listColumns = {
   id: transactions.id,
   type: transactions.type,
@@ -30,6 +34,8 @@ const listColumns = {
   source: transactions.source,
   installmentPaymentId: transactions.installmentPaymentId,
   creditLoanId: transactions.creditLoanId,
+  transferAccountId: transactions.transferAccountId,
+  transferAccountName: toAccounts.name,
   recurringRuleId: transactions.recurringRuleId,
   editedAt: transactions.editedAt,
   categoryId: categories.id,
@@ -44,6 +50,8 @@ const listColumns = {
 
 export type TTransactionJoinedRow = {
   creditLoanId: string | null;
+  transferAccountId: string | null;
+  transferAccountName: string | null;
   id: string;
   type: 'income' | 'expense' | 'transfer';
   amountCentavos: number;
@@ -53,8 +61,9 @@ export type TTransactionJoinedRow = {
   installmentPaymentId: string | null;
   recurringRuleId: string | null;
   editedAt: Date | null;
-  categoryId: string;
-  categoryName: string;
+  // Nullable because the category join is now LEFT: a transfer has none.
+  categoryId: string | null;
+  categoryName: string | null;
   categoryIcon: string | null;
   categoryColor: string | null;
   accountId: string;
@@ -65,14 +74,22 @@ export type TTransactionJoinedRow = {
 
 function buildFilters(q: TListTransactionsQuery): SQL | undefined {
   return and(
-    // Transfers are reserved but unimplemented; exclude them from every
-    // income/expense read so the type's arrival can't silently skew totals.
-    sql`${transactions.type} <> 'transfer'`,
+    // Transfers ARE listed: money moved, and hiding it would leave the ledger
+    // unable to explain a balance change. They stay out of the income/expense
+    // SUMS via the `filter (where type = ...)` clauses instead, so listing them
+    // cannot skew a total.
     q.dateFrom ? gte(transactions.txnDate, q.dateFrom) : undefined,
     q.dateTo ? lte(transactions.txnDate, q.dateTo) : undefined,
     q.type ? eq(transactions.type, q.type) : undefined,
     q.categoryId ? inArray(transactions.categoryId, q.categoryId) : undefined,
-    q.accountId ? inArray(transactions.accountId, q.accountId) : undefined,
+    // Either leg: filtering by Cash must surface transfers INTO Cash too,
+    // otherwise the account filter disagrees with the account's own balance.
+    q.accountId
+      ? or(
+          inArray(transactions.accountId, q.accountId),
+          inArray(transactions.transferAccountId, q.accountId),
+        )
+      : undefined,
     q.amountMinCentavos !== undefined
       ? gte(transactions.amountCentavos, q.amountMinCentavos)
       : undefined,
@@ -118,7 +135,10 @@ export async function listTransactions(
     db
       .select(listColumns)
       .from(transactions)
-      .innerJoin(categories, eq(transactions.categoryId, categories.id))
+      // LEFT, not INNER: a transfer has no category, and an inner join would drop
+      // it from the list entirely — money silently missing from the ledger view.
+      .leftJoin(categories, eq(transactions.categoryId, categories.id))
+      .leftJoin(toAccounts, eq(transactions.transferAccountId, toAccounts.id))
       .innerJoin(accounts, eq(transactions.accountId, accounts.id))
       .where(where)
       .orderBy(...orderFor(q))
@@ -160,7 +180,10 @@ export async function streamForExport(
   const rows = await db
     .select(listColumns)
     .from(transactions)
-    .innerJoin(categories, eq(transactions.categoryId, categories.id))
+    // LEFT, not INNER: a transfer has no category, and an inner join would drop
+    // it from the list entirely — money silently missing from the ledger view.
+    .leftJoin(categories, eq(transactions.categoryId, categories.id))
+    .leftJoin(toAccounts, eq(transactions.transferAccountId, toAccounts.id))
     .innerJoin(accounts, eq(transactions.accountId, accounts.id))
     .where(buildFilters(q))
     .orderBy(...orderFor(q))
@@ -174,7 +197,10 @@ export async function findJoinedById(
   const rows = await db
     .select(listColumns)
     .from(transactions)
-    .innerJoin(categories, eq(transactions.categoryId, categories.id))
+    // LEFT, not INNER: a transfer has no category, and an inner join would drop
+    // it from the list entirely — money silently missing from the ledger view.
+    .leftJoin(categories, eq(transactions.categoryId, categories.id))
+    .leftJoin(toAccounts, eq(transactions.transferAccountId, toAccounts.id))
     .innerJoin(accounts, eq(transactions.accountId, accounts.id))
     .where(eq(transactions.id, id))
     .limit(1);
@@ -260,7 +286,10 @@ export async function listJoinedBetween(
   const rows = await db
     .select(listColumns)
     .from(transactions)
-    .innerJoin(categories, eq(transactions.categoryId, categories.id))
+    // LEFT, not INNER: a transfer has no category, and an inner join would drop
+    // it from the list entirely — money silently missing from the ledger view.
+    .leftJoin(categories, eq(transactions.categoryId, categories.id))
+    .leftJoin(toAccounts, eq(transactions.transferAccountId, toAccounts.id))
     .innerJoin(accounts, eq(transactions.accountId, accounts.id))
     .where(
       and(

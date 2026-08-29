@@ -17,7 +17,11 @@ import { investments } from './investments.js';
 import { recurringRules } from './recurring.js';
 
 /**
- * 'transfer' is RESERVED, not implemented. Reserving the enum value now makes
+ * A 'transfer' moves money between YOUR OWN accounts: `accountId` is the
+ * source, `transferAccountId` the destination. It is neither income nor an
+ * expense, so every total in the app excludes it — only account balances move.
+ *
+ * PREVIOUSLY RESERVED, now implemented. Reserving the enum value now makes
  * adding transfers later a code change rather than a migration. Until then the
  * README documents the convention: log credit-card purchases as expenses on the
  * card account and never log the bill payment, or a ₱3,000 purchase counts as
@@ -41,9 +45,14 @@ export const transactions = pgTable(
     /** ALWAYS positive. The sign is implied by `type`. */
     amountCentavos: centavos('amount_centavos').notNull(),
     txnDate: day('txn_date').notNull(),
-    categoryId: uuid('category_id')
-      .notNull()
-      .references(() => categories.id, { onDelete: 'restrict' }),
+    /**
+     * NULL only for transfers — moving your own money between pockets has no
+     * category, and inventing one would put it in your spending breakdown. The
+     * CHECK below enforces this in both directions.
+     */
+    categoryId: uuid('category_id').references(() => categories.id, {
+      onDelete: 'restrict',
+    }),
     accountId: uuid('account_id')
       .notNull()
       .references(() => accounts.id, { onDelete: 'restrict' }),
@@ -88,6 +97,11 @@ export const transactions = pgTable(
     investmentId: uuid('investment_id').references(() => investments.id, {
       onDelete: 'set null',
     }),
+    /** Destination account. Set for transfers, null for everything else. */
+    transferAccountId: uuid('transfer_account_id').references(
+      () => accounts.id,
+      { onDelete: 'restrict' },
+    ),
     /** Set when a generated row is hand-edited; protects it from bulk updates. */
     editedAt: timestamp('edited_at', { withTimezone: true }),
     createdAt: createdAt(),
@@ -111,6 +125,23 @@ export const transactions = pgTable(
     uniqueIndex('transactions_installment_payment_uq').on(
       t.installmentPaymentId,
     ),
+    index('transactions_transfer_account_idx').on(t.transferAccountId),
     check('transactions_amount_positive', sql`${t.amountCentavos} > 0`),
+    // A transfer needs a destination that is not its own source; anything else
+    // must have no destination at all. Without this, a half-written transfer
+    // would silently create or destroy money.
+    check(
+      'transactions_transfer_shape',
+      sql`case when ${t.type} = 'transfer'
+             then ${t.transferAccountId} is not null
+                  and ${t.transferAccountId} <> ${t.accountId}
+             else ${t.transferAccountId} is null end`,
+    ),
+    check(
+      'transactions_category_shape',
+      sql`case when ${t.type} = 'transfer'
+             then ${t.categoryId} is null
+             else ${t.categoryId} is not null end`,
+    ),
   ],
 );

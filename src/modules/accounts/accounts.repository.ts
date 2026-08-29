@@ -46,28 +46,41 @@ export async function listAccounts(
 }
 
 /**
- * Derived balance per account: opening + income − expense.
+ * Derived balance per account: opening + income − expense − transfers out
+ * + transfers in.
  *
- * Grouped over transactions only, so accounts with no activity are absent from
- * the map and the service falls back to the opening balance. Transfers are
- * excluded because the type is reserved but unimplemented — when it lands, it
- * must be added here with both legs.
+ * Accounts with no activity are absent from the map and the service falls back
+ * to the opening balance.
  */
 export async function sumMovementByAccount(): Promise<Map<string, number>> {
-  const rows = await db
-    .select({
-      accountId: transactions.accountId,
-      net: sql<string>`
-        coalesce(sum(${transactions.amountCentavos})
-          filter (where ${transactions.type} = 'income'), 0)
-        - coalesce(sum(${transactions.amountCentavos})
-          filter (where ${transactions.type} = 'expense'), 0)
-      `,
-    })
-    .from(transactions)
-    .groupBy(transactions.accountId);
+  // A transfer has TWO legs and both must move, or money is created or
+  // destroyed. The source leg is grouped by account_id and subtracted; the
+  // destination leg is a second pass grouped by transfer_account_id and added.
+  // The outer sum folds an account's two contributions together.
+  const rows = await db.execute(sql`
+    select acct as account_id, sum(net)::text as net
+    from (
+      select account_id as acct,
+        coalesce(sum(amount_centavos) filter (where type = 'income'), 0)
+        - coalesce(sum(amount_centavos) filter (where type = 'expense'), 0)
+        - coalesce(sum(amount_centavos) filter (where type = 'transfer'), 0)
+        as net
+      from transactions
+      group by account_id
 
-  return new Map(rows.map((r) => [r.accountId, toCentavos(r.net)]));
+      union all
+
+      select transfer_account_id as acct,
+        coalesce(sum(amount_centavos), 0) as net
+      from transactions
+      where type = 'transfer' and transfer_account_id is not null
+      group by transfer_account_id
+    ) legs
+    group by acct
+  `);
+
+  const list = rows as unknown as { account_id: string; net: string }[];
+  return new Map(list.map((r) => [r.account_id, toCentavos(r.net)]));
 }
 
 export async function findAccountById(
@@ -185,7 +198,9 @@ export async function nameTaken(
 
 export type TAccountHistoryRow = {
   id: string;
-  type: 'income' | 'expense';
+  type: 'income' | 'expense' | 'transfer';
+  /** For a transfer: true when money came INTO this account. */
+  isIncoming: boolean;
   amountCentavos: number;
   txnDate: string;
   note: string | null;
@@ -225,17 +240,25 @@ export async function historyForAccount(
         c.name  as category_name,
         c.icon  as category_icon,
         c.color as category_color,
+        (t.type = 'transfer' and t.transfer_account_id = ${accountId}) as is_incoming,
         ${openingBalanceCentavos}::bigint + sum(
-          case when t.type = 'income' then t.amount_centavos
-               else -t.amount_centavos end
+          -- A transfer counts + or − depending on WHICH SIDE this account is
+          -- on. Signing by type alone would make every incoming transfer look
+          -- like money leaving.
+          case
+            when t.type = 'income' then t.amount_centavos
+            when t.type = 'transfer' and t.transfer_account_id = ${accountId}
+              then t.amount_centavos
+            else -t.amount_centavos
+          end
         ) over (
           order by t.txn_date asc, t.created_at asc, t.id asc
           rows between unbounded preceding and current row
         ) as running_balance
       from transactions t
-      join categories c on c.id = t.category_id
-      where t.account_id = ${accountId}
-        and t.type <> 'transfer'
+      left join categories c on c.id = t.category_id
+      where (t.account_id = ${accountId}
+             or (t.type = 'transfer' and t.transfer_account_id = ${accountId}))
     )
     select * from ordered
     order by txn_date desc, created_at desc, id desc
@@ -246,10 +269,9 @@ export async function historyForAccount(
     .select({ value: count() })
     .from(transactions)
     .where(
-      and(
-        eq(transactions.accountId, accountId),
-        sql`${transactions.type} <> 'transfer'`,
-      ),
+      sql`(${transactions.accountId} = ${accountId}
+           or (${transactions.type} = 'transfer'
+               and ${transactions.transferAccountId} = ${accountId}))`,
     );
 
   // Raw SQL, so the driver returns snake_case with no type information at all.
@@ -261,7 +283,8 @@ export async function historyForAccount(
     txn_date: string;
     note: string | null;
     source: string;
-    category_name: string;
+    category_name: string | null;
+    is_incoming: boolean;
     category_icon: string | null;
     category_color: string | null;
     running_balance: string | number;
@@ -276,7 +299,11 @@ export async function historyForAccount(
       txnDate: r.txn_date,
       note: r.note,
       source: r.source,
-      categoryName: r.category_name,
+      // Transfers carry no category; label the direction instead of leaving
+      // an empty cell the reader has to interpret.
+      categoryName:
+        r.category_name ?? (r.is_incoming ? 'Transfer in' : 'Transfer out'),
+      isIncoming: r.is_incoming,
       categoryIcon: r.category_icon,
       categoryColor: r.category_color,
       // sum() over a bigint returns numeric, which postgres.js hands back as a

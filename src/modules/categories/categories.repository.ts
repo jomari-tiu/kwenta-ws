@@ -135,8 +135,18 @@ export async function countTransactionsByCategory(): Promise<
       value: count(),
     })
     .from(transactions)
+    // Transfers carry no category; excluding them keeps the key type honest
+    // rather than papering over a null.
+    .where(sql`${transactions.categoryId} is not null`)
     .groupBy(transactions.categoryId);
-  return new Map(rows.map((r) => [r.categoryId, r.value]));
+  return new Map(
+    rows
+      .filter(
+        (r): r is { categoryId: string; value: number } =>
+          r.categoryId !== null,
+      )
+      .map((r) => [r.categoryId, r.value]),
+  );
 }
 
 /**

@@ -17,24 +17,59 @@ const uuidList = z
   )
   .pipe(z.array(z.uuid('Invalid id in list')).min(1));
 
-export const createTransactionSchema = z.object({
-  type: z.enum(LEDGER_TYPES),
+const sharedFields = {
   amountCentavos: z
     .number()
     .int('Amount must be whole centavos')
     .positive('Amount must be greater than zero'),
   txnDate: plainDate,
-  categoryId: z.uuid('Category is required'),
   accountId: z.uuid('Account is required'),
   note: z.string().trim().max(200).nullable().optional(),
-});
+};
 
-export const updateTransactionSchema = createTransactionSchema.partial();
+/**
+ * A discriminated union on `type`, mirroring the two CHECK constraints on the
+ * table: an income or expense needs a category and no destination; a transfer
+ * needs a destination and no category. Keeping the shapes apart here means a
+ * malformed body is a 400 rather than a constraint violation at insert.
+ */
+export const createTransactionSchema = z.discriminatedUnion('type', [
+  z.object({
+    ...sharedFields,
+    type: z.literal('income'),
+    categoryId: z.uuid('Category is required'),
+  }),
+  z.object({
+    ...sharedFields,
+    type: z.literal('expense'),
+    categoryId: z.uuid('Category is required'),
+  }),
+  z
+    .object({
+      ...sharedFields,
+      type: z.literal('transfer'),
+      transferAccountId: z.uuid('Destination account is required'),
+    })
+    .refine((v) => v.accountId !== v.transferAccountId, {
+      message: 'Choose two different accounts.',
+      path: ['transferAccountId'],
+    }),
+]);
+
+export const updateTransactionSchema = z.object({
+  amountCentavos: sharedFields.amountCentavos.optional(),
+  txnDate: plainDate.optional(),
+  accountId: z.uuid().optional(),
+  categoryId: z.uuid().optional(),
+  transferAccountId: z.uuid().optional(),
+  type: z.enum(LEDGER_TYPES).optional(),
+  note: z.string().trim().max(200).nullable().optional(),
+});
 
 export const listTransactionsQuerySchema = z.object({
   dateFrom: plainDate.optional(),
   dateTo: plainDate.optional(),
-  type: z.enum(LEDGER_TYPES).optional(),
+  type: z.enum([...LEDGER_TYPES, 'transfer']).optional(),
   categoryId: uuidList.optional(),
   accountId: uuidList.optional(),
   amountMinCentavos: z.coerce.number().int().nonnegative().optional(),

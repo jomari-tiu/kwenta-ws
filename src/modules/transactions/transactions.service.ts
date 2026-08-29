@@ -20,7 +20,7 @@ import type {
 export function toDto(row: repo.TTransactionJoinedRow): TTransaction {
   return {
     id: row.id,
-    type: row.type as 'income' | 'expense',
+    type: row.type,
     amountCentavos: row.amountCentavos,
     txnDate: row.txnDate,
     note: row.note,
@@ -29,12 +29,31 @@ export function toDto(row: repo.TTransactionJoinedRow): TTransaction {
     creditLoanId: row.creditLoanId,
     recurringRuleId: row.recurringRuleId,
     isEdited: row.editedAt !== null,
-    category: {
-      id: row.categoryId,
-      name: row.categoryName,
-      icon: row.categoryIcon,
-      color: row.categoryColor,
-    },
+    // A transfer has no category. Rather than making every render site handle
+    // null, the DTO supplies a display-only stand-in — the DB row stays null.
+    category:
+      row.categoryId === null
+        ? {
+            id: '',
+            name: 'Transfer',
+            icon: 'arrow-left-right',
+            color: null,
+          }
+        : {
+            id: row.categoryId,
+            name: row.categoryName ?? '',
+            icon: row.categoryIcon,
+            color: row.categoryColor,
+          },
+    transferAccount:
+      row.transferAccountId === null
+        ? null
+        : {
+            id: row.transferAccountId,
+            name: row.transferAccountName ?? '',
+            icon: null,
+            color: null,
+          },
     account: {
       id: row.accountId,
       name: row.accountName,
@@ -104,16 +123,40 @@ export async function getById(id: string): Promise<TTransaction> {
   return toDto(row);
 }
 
+/** Both ends of a transfer must exist, be unarchived, and be different. */
+async function assertTransferRefs(
+  fromAccountId: string,
+  toAccountId: string | null,
+): Promise<void> {
+  if (!toAccountId) throw badRequest('Destination account is required.');
+  if (fromAccountId === toAccountId) {
+    throw badRequest('Choose two different accounts.');
+  }
+  const [from, to] = await Promise.all([
+    accountsRepo.findWritableAccount(fromAccountId),
+    accountsRepo.findWritableAccount(toAccountId),
+  ]);
+  if (!from) throw badRequest('Source account not found or archived.');
+  if (!to) throw badRequest('Destination account not found or archived.');
+}
+
 export async function create(
   body: TCreateTransactionBody,
 ): Promise<TTransaction> {
-  await assertWritableRefs(body.type, body.categoryId, body.accountId);
+  if (body.type === 'transfer') {
+    await assertTransferRefs(body.accountId, body.transferAccountId);
+  } else {
+    await assertWritableRefs(body.type, body.categoryId, body.accountId);
+  }
 
   const inserted = await repo.insertTransaction({
     type: body.type,
     amountCentavos: body.amountCentavos,
     txnDate: body.txnDate,
-    categoryId: body.categoryId,
+    // The table's CHECKs enforce this pairing too; sending the wrong shape
+    // here would be a constraint violation rather than silent bad data.
+    categoryId: body.type === 'transfer' ? null : body.categoryId,
+    transferAccountId: body.type === 'transfer' ? body.transferAccountId : null,
     accountId: body.accountId,
     note: body.note ?? null,
     source: 'manual',
@@ -137,10 +180,19 @@ export async function update(
     );
   }
 
-  const nextType = body.type ?? (existing.type as 'income' | 'expense');
-  const nextCategoryId = body.categoryId ?? existing.categoryId;
   const nextAccountId = body.accountId ?? existing.accountId;
-  await assertWritableRefs(nextType, nextCategoryId, nextAccountId);
+
+  if (existing.type === 'transfer') {
+    await assertTransferRefs(
+      nextAccountId,
+      body.transferAccountId ?? existing.transferAccountId,
+    );
+  } else {
+    const nextType = body.type ?? existing.type;
+    const nextCategoryId = body.categoryId ?? existing.categoryId;
+    if (!nextCategoryId) throw badRequest('Category is required.');
+    await assertWritableRefs(nextType, nextCategoryId, nextAccountId);
+  }
 
   // Mark generated rows as hand-edited so a bulk rule update skips them.
   const isGenerated = existing.source !== 'manual';
