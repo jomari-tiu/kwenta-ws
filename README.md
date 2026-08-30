@@ -123,7 +123,7 @@ be lifted into production without retyping anything.
 
 ```
 GET  /api/v1/data/export              -> kwenta-backup-YYYY-MM-DD.json
-POST /api/v1/data/import?mode=empty   -> refuses unless the target is empty
+POST /api/v1/data/import?mode=empty   -> refuses if the target holds owner data
 POST /api/v1/data/import?mode=replace -> wipes the target first
 ```
 
@@ -139,6 +139,9 @@ Both are behind auth, and the UI for them is the **Backup** page under Setup.
 
 **What it does and does not carry**
 
+- "Empty" means no OWNER data — no transactions, loans, funds, plans, rules or
+  budget overrides. The seeded categories and accounts do not count, or the safe
+  mode could never be used on the freshly seeded database it exists for.
 - Rows keep their original UUIDs, so every reference between them survives.
   This is why the target must be empty or replaced — the import never remaps ids
   and would collide with an existing row.

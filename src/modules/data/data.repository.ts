@@ -57,10 +57,29 @@ export async function countAll(): Promise<Record<TTableKey, number>> {
   return counts;
 }
 
-/** True when the database holds no financial data at all. */
+/**
+ * Tables that only ever hold data the OWNER created.
+ *
+ * Categories and accounts are excluded on purpose: the seed writes 29 and 8 of
+ * them on first boot, so a brand-new server has them before anyone has typed
+ * anything. Counting those as "not empty" made mode=empty impossible to satisfy
+ * on exactly the deployment it exists to serve — a freshly seeded production
+ * database. Untouched has to mean "no ledger of your own", not "zero rows".
+ */
+const OWNER_DATA_TABLES = [
+  'recurringRules',
+  'installmentPlans',
+  'installmentPayments',
+  'creditLoans',
+  'investments',
+  'transactions',
+  'budgetOverrides',
+] as const satisfies readonly TTableKey[];
+
+/** True when nothing the owner created is stored yet. */
 export async function isEmpty(): Promise<boolean> {
   const counts = await countAll();
-  return Object.values(counts).every((n) => n === 0);
+  return OWNER_DATA_TABLES.every((key) => counts[key] === 0);
 }
 
 /**
