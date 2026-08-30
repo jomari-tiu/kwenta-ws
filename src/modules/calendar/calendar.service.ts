@@ -89,6 +89,8 @@ export type TCalendarDay = {
    * day's net wrong.
    */
   transferCentavos: number;
+  /** Net moved into investment pots. Neither spending nor income. */
+  savedCentavos: number;
   hasOverdueInstallment: boolean;
   hasDueInstallment: boolean;
   hasProjectedRecurring: boolean;
@@ -108,6 +110,7 @@ export type TCalendarMonth = {
   totals: {
     incomeCentavos: number;
     expenseCentavos: number;
+    savedCentavos: number;
     netCentavos: number;
   };
   projectedTotals: { incomeCentavos: number; expenseCentavos: number };
@@ -228,6 +231,7 @@ export async function getMonth(monthKey: string): Promise<TCalendarMonth> {
 
   let monthIncome = 0;
   let monthExpense = 0;
+  let monthSaved = 0;
   let projIncome = 0;
   let projExpense = 0;
 
@@ -239,12 +243,22 @@ export async function getMonth(monthKey: string): Promise<TCalendarMonth> {
     const dayFundTargets = fundTargetsByDay.get(date) ?? [];
     const inMonth = monthKeyOf(date) === monthKey;
 
-    const incomeCentavos = dayEntries
-      .filter((e) => e.type === 'income')
-      .reduce((a, e) => a + e.amountCentavos, 0);
-    const expenseCentavos = dayEntries
-      .filter((e) => e.type === 'expense')
-      .reduce((a, e) => a + e.amountCentavos, 0);
+    // Split the same way the dashboard does, or the two screens disagree:
+    // money put into a fund is not spending, and money taken back out is not
+    // income. `income − expense − saved = net` holds on every day.
+    const sum = (rows: TTransaction[]) =>
+      rows.reduce((a, e) => a + e.amountCentavos, 0);
+    const isFund = (e: TTransaction) => e.investmentId !== null;
+
+    const incomeCentavos = sum(
+      dayEntries.filter((e) => e.type === 'income' && !isFund(e)),
+    );
+    const expenseCentavos = sum(
+      dayEntries.filter((e) => e.type === 'expense' && !isFund(e)),
+    );
+    const savedCentavos =
+      sum(dayEntries.filter((e) => e.type === 'expense' && isFund(e))) -
+      sum(dayEntries.filter((e) => e.type === 'income' && isFund(e)));
     const transferCentavos = dayEntries
       .filter((e) => e.type === 'transfer')
       .reduce((a, e) => a + e.amountCentavos, 0);
@@ -252,6 +266,7 @@ export async function getMonth(monthKey: string): Promise<TCalendarMonth> {
     if (inMonth) {
       monthIncome += incomeCentavos;
       monthExpense += expenseCentavos;
+      monthSaved += savedCentavos;
       for (const p of dayProjections) {
         if (p.type === 'income') projIncome += p.amountCentavos;
         else projExpense += p.amountCentavos;
@@ -264,9 +279,10 @@ export async function getMonth(monthKey: string): Promise<TCalendarMonth> {
       isToday: date === today,
       incomeCentavos,
       expenseCentavos,
-      netCentavos: incomeCentavos - expenseCentavos,
+      netCentavos: incomeCentavos - expenseCentavos - savedCentavos,
       transactionCount: dayEntries.length,
       transferCentavos,
+      savedCentavos,
       // This is what paints the day RED.
       // What paints the day RED: an overdue installment payment OR an overdue
       // credit loan. A loan with no due date has no day and can never land here.
@@ -292,7 +308,8 @@ export async function getMonth(monthKey: string): Promise<TCalendarMonth> {
     totals: {
       incomeCentavos: monthIncome,
       expenseCentavos: monthExpense,
-      netCentavos: monthIncome - monthExpense,
+      savedCentavos: monthSaved,
+      netCentavos: monthIncome - monthExpense - monthSaved,
     },
     // Kept SEPARATE from totals. Folding a forecast into net balance would make
     // the headline number a fiction.
