@@ -56,12 +56,50 @@ dev* (Manila) and is wrong in any UTC runtime. "Today" always comes from
 `todayInAppTz()` in `src/common/date.ts`, never `current_date` and never
 `new Date().toISOString()`.
 
-## Not deployed
+## Deploying to Render
 
-Deployment is deliberately not set up. `render.yaml` is absent by design; add it
-only if that changes. Note that several details assume a **single instance**:
-migrate-on-start, the in-memory recurring-catchup throttle, and the advisory
-lock around materialization.
+Several details assume a **single instance**: migrate-on-start, the in-memory
+recurring-catchup throttle, and the advisory lock around materialization. True
+on the free tier; revisit before scaling out.
+
+**Build Command**  `npm install && npm run build`
+
+**Start Command**  `npm run start:prod`
+
+Not `npm run start`. `start:prod` runs the migrator first, because the free tier
+has no pre-deploy hook and a fresh database has no tables. It uses the COMPILED
+migrator (`dist/db/migrate.js`) rather than `npm run db:migrate`, which goes
+through `tsx` — a devDependency that `npm install` skips when
+`NODE_ENV=production`.
+
+**Required environment variables** — the app refuses to boot without these two,
+by design (`src/config/env.ts`), rather than failing later on a request:
+
+| Variable | Notes |
+|---|---|
+| `DATABASE_URL` | Postgres connection string |
+| `JWT_SECRET` | **≥32 chars in production**, and must not begin `dev-secret` |
+
+**Also set in practice:**
+
+| Variable | Why |
+|---|---|
+| `DATABASE_SSL=true` | Defaults to `false`. Render and Neon both require SSL — without it the connection is refused |
+| `NODE_ENV=production` | Enables the JWT strength check |
+| `APP_TIMEZONE=Asia/Manila` | Every plain date is written under this zone. Differ from the exporting server and the day a transaction falls on shifts |
+| `CORS_ORIGINS` | Comma-separated frontend origins. Defaults to empty, so the browser is blocked until set |
+| `OWNER_PASSWORD` | Read once by the seed to create the login |
+
+Generate a secret with:
+
+```
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+```
+
+**First deploy only** — create the owner account by running `npm run seed:prod`
+in a Render shell. Without it there is no user and login always fails. The seed
+also inserts starter categories and accounts, so if you plan to import a backup,
+import with `mode=replace`.
 
 ## Moving your data to another server
 
