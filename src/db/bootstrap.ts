@@ -24,24 +24,27 @@ const client = postgres(env.DATABASE_URL, {
   prepare: false,
 });
 
-let needsSeed = false;
+async function migrateAndCheck(): Promise<boolean> {
+  try {
+    await migrate(drizzle(client), { migrationsFolder: './drizzle' });
+    console.log('migrations applied');
 
-try {
-  await migrate(drizzle(client), { migrationsFolder: './drizzle' });
-  console.log('migrations applied');
-
-  // Raw query rather than the schema helper: this runs before the app boots and
-  // should depend on as little of it as possible.
-  const owner = await client`select 1 from users limit 1`;
-  needsSeed = owner.length === 0;
-  console.log(
-    needsSeed
-      ? 'no owner found — seeding starter data'
-      : 'owner exists — skipping seed',
-  );
-} finally {
-  await client.end();
+    // Raw query rather than the schema helper: this runs before the app boots
+    // and should depend on as little of it as possible.
+    const owner = await client`select 1 from users limit 1`;
+    const isFresh = owner.length === 0;
+    console.log(
+      isFresh
+        ? 'no owner found — seeding starter data'
+        : 'owner exists — skipping seed',
+    );
+    return isFresh;
+  } finally {
+    await client.end();
+  }
 }
+
+const needsSeed = await migrateAndCheck();
 
 // Imported rather than called: seed.ts runs at module scope and owns its own
 // connection. Loading it here is what executes it, and only when needed.
