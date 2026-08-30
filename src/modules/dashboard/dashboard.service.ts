@@ -1,4 +1,5 @@
 import {
+  addDays,
   todayInAppTz,
   monthKeyOf,
   type TPlainDate,
@@ -7,6 +8,8 @@ import * as accountsService from '../accounts/accounts.service.js';
 import * as budgetsService from '../budgets/budgets.service.js';
 import * as creditLoansService from '../credit-loans/credit-loans.service.js';
 import * as investmentsService from '../investments/investments.service.js';
+import * as installmentsRepo from '../installments/installments.repository.js';
+import * as creditLoansRepo from '../credit-loans/credit-loans.repository.js';
 import * as installmentsService from '../installments/installments.service.js';
 import * as repo from './dashboard.repository.js';
 import {
@@ -15,6 +18,128 @@ import {
   type TPeriod,
   type TSeriesPoint,
 } from './dashboard.buckets.js';
+
+/**
+ * A single thing the owner still owes, itemised.
+ *
+ * Only two things in this app have a real unpaid state: an installment payment
+ * (pending until marked paid) and a credit loan (outstanding until repaid). A
+ * recurring rule does NOT belong here — it assumes payment on its date and
+ * writes the transaction itself, so it is never "unpaid" to begin with.
+ */
+export type TDueItem = {
+  kind: 'installment' | 'loan';
+  /** The owning plan or loan, so the UI can link to it. */
+  id: string;
+  name: string;
+  detail: string | null;
+  amountCentavos: number;
+  /** Null only for a loan with no agreed date. */
+  dueDate: string | null;
+  status: 'overdue' | 'dueSoon' | 'upcoming' | 'undated';
+  /** Negative when overdue. Null for an undated loan. */
+  daysUntil: number | null;
+};
+
+const DUE_HORIZON_DAYS = 30;
+const DUE_SOON_DAYS = 7;
+/** Every pending payment ever, however far back — an old miss is still owed. */
+const FAR_PAST = '1900-01-01';
+
+function daysBetween(from: string, to: string): number {
+  const a = Date.UTC(
+    Number(from.slice(0, 4)),
+    Number(from.slice(5, 7)) - 1,
+    Number(from.slice(8, 10)),
+  );
+  const b = Date.UTC(
+    Number(to.slice(0, 4)),
+    Number(to.slice(5, 7)) - 1,
+    Number(to.slice(8, 10)),
+  );
+  return Math.round((b - a) / 86_400_000);
+}
+
+async function collectDueItems(today: string): Promise<TDueItem[]> {
+  const horizon = addDays(today, DUE_HORIZON_DAYS);
+
+  const [dues, loanPage, repaid] = await Promise.all([
+    installmentsRepo.listDuesBetween(FAR_PAST, horizon),
+    creditLoansRepo.listLoans(500, 0),
+    creditLoansRepo.repaidByLoan(),
+  ]);
+
+  const items: TDueItem[] = [];
+
+  for (const d of dues) {
+    if (d.status === 'paid') continue;
+    const daysUntil = daysBetween(today, d.dueDate);
+    items.push({
+      kind: 'installment',
+      id: d.planId,
+      name: d.planName,
+      detail: `Payment ${d.sequenceNo} of ${d.termMonths}`,
+      amountCentavos: d.amountCentavos,
+      dueDate: d.dueDate,
+      status:
+        daysUntil < 0
+          ? 'overdue'
+          : daysUntil <= DUE_SOON_DAYS
+            ? 'dueSoon'
+            : 'upcoming',
+      daysUntil,
+    });
+  }
+
+  for (const loan of loanPage.rows) {
+    const outstanding = loan.principalCentavos - (repaid.get(loan.id) ?? 0);
+    // Settled or closed loans are not owed, whatever their date says.
+    if (outstanding <= 0 || loan.closedAt !== null) continue;
+
+    if (loan.dueDate === null) {
+      // Still owed, just never nagging. Listed last rather than hidden — an
+      // undated debt is the easiest one to forget.
+      items.push({
+        kind: 'loan',
+        id: loan.id,
+        name: loan.name,
+        detail: loan.lender,
+        amountCentavos: outstanding,
+        dueDate: null,
+        status: 'undated',
+        daysUntil: null,
+      });
+      continue;
+    }
+
+    const daysUntil = daysBetween(today, loan.dueDate);
+    if (daysUntil > DUE_HORIZON_DAYS) continue;
+    items.push({
+      kind: 'loan',
+      id: loan.id,
+      name: loan.name,
+      detail: loan.lender,
+      amountCentavos: outstanding,
+      dueDate: loan.dueDate,
+      status:
+        daysUntil < 0
+          ? 'overdue'
+          : daysUntil <= DUE_SOON_DAYS
+            ? 'dueSoon'
+            : 'upcoming',
+      daysUntil,
+    });
+  }
+
+  // Most urgent first: the longest overdue at the top, undated at the bottom
+  // where it cannot push a real deadline off the list.
+  const rank = { overdue: 0, dueSoon: 1, upcoming: 2, undated: 3 };
+  return items.sort(
+    (a, b) =>
+      rank[a.status] - rank[b.status] ||
+      (a.dueDate ?? '9999').localeCompare(b.dueDate ?? '9999'),
+  );
+}
 
 export type TDashboardSummary = {
   period: TPeriod;
@@ -31,6 +156,8 @@ export type TDashboardSummary = {
   netCentavos: number;
   savingsRatePercent: number | null;
   netBalanceAllTimeCentavos: number;
+  /** Everything still owed, most urgent first. */
+  dueItems: TDueItem[];
   /**
    * Money you could actually spend right now: the balance of every live
    * account EXCEPT credit cards, whose negative balance is debt owed rather
@@ -104,6 +231,7 @@ export async function summary(
     budgets,
     loans,
     funds,
+    dueItems,
   ] = await Promise.all([
     repo.totalsBetween(w.from, w.to),
     repo.series(w.from, w.to, w.granularity),
@@ -114,6 +242,7 @@ export async function summary(
     budgetsService.forMonth(monthKeyOf(anchor)),
     creditLoansService.summary(),
     investmentsService.summary(),
+    collectDueItems(anchor === todayInAppTz() ? anchor : todayInAppTz()),
   ]);
 
   const net = totals.incomeCentavos - totals.expenseCentavos;
@@ -139,6 +268,9 @@ export async function summary(
               100,
           ),
     netBalanceAllTimeCentavos: allTime.incomeCentavos - allTime.expenseCentavos,
+    // Always "as of today", never the browsed period: what you owe does not
+    // change because you clicked back to July.
+    dueItems,
     // Credit cards are excluded on purpose. Their balance is what you OWE, and
     // folding a debt into "money I can spend" understates both.
     disposableCentavos: balances
