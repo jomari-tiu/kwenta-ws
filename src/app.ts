@@ -4,15 +4,25 @@ import helmet from 'helmet';
 import { env } from './config/env.js';
 import { errorHandler, notFoundHandler } from './middleware/error-handler.js';
 import { globalLimiter } from './middleware/rate-limit.js';
-import { requestLogger } from './middleware/request-logger.js';
+import { logger, requestLogger } from './middleware/request-logger.js';
 import { healthRoutes } from './modules/health/health.routes.js';
 import { authPublicRoutes } from './modules/auth/auth.routes.js';
 import { requireAuth } from './middleware/require-auth.js';
 import { apiRouter } from './routes.js';
 
+/**
+ * An Origin header is always scheme + host, never a trailing slash or a path.
+ * Pasting "https://app.vercel.app/" into CORS_ORIGINS is the easy mistake, and
+ * exact matching then rejects every request with no hint why — so both sides
+ * are normalised before comparing.
+ */
+function normaliseOrigin(value: string): string {
+  return value.trim().replace(/\/+$/, '').toLowerCase();
+}
+
 function buildCorsOptions(): cors.CorsOptions {
   const exact = env.CORS_ORIGINS.split(',')
-    .map((s) => s.trim())
+    .map(normaliseOrigin)
     .filter(Boolean);
   const pattern = env.CORS_ORIGIN_REGEX
     ? new RegExp(env.CORS_ORIGIN_REGEX)
@@ -22,8 +32,14 @@ function buildCorsOptions(): cors.CorsOptions {
     origin: (origin, cb) => {
       // No Origin header: curl, same-origin, server-to-server.
       if (!origin) return cb(null, true);
-      if (exact.includes(origin)) return cb(null, true);
+      if (exact.includes(normaliseOrigin(origin))) return cb(null, true);
       if (pattern?.test(origin)) return cb(null, true);
+      // Logged because the browser only ever shows "CORS error" — the rejected
+      // origin is the one fact needed to fix it, and it is invisible otherwise.
+      logger.warn(
+        { origin, allowed: exact, pattern: env.CORS_ORIGIN_REGEX || null },
+        'CORS rejected an origin — add it to CORS_ORIGINS',
+      );
       return cb(new Error('Not allowed by CORS'));
     },
     credentials: false,
