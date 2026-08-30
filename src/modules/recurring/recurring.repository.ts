@@ -113,9 +113,10 @@ export async function insertOccurrences(
   return inserted.length;
 }
 
+/** `null` rewinds the cursor so catch-up recomputes from the rule's start. */
 export async function setLastMaterialized(
   id: string,
-  date: TPlainDate,
+  date: TPlainDate | null,
 ): Promise<void> {
   await db
     .update(recurringRules)

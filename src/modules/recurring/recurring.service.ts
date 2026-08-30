@@ -173,6 +173,21 @@ export async function update(
     }
   }
 
+  // Moving the start date EARLIER has to rewind the materialization cursor.
+  //
+  // Catch-up computes its window as `lastMaterializedDate + 1 .. today`, so a
+  // cursor already at today makes every newly-covered date unreachable: the
+  // rule silently produces nothing and the owner is given no reason why. That
+  // is exactly what an edit like "start this from the 30th instead of the 1st"
+  // is asking for, so the edit itself is the explicit action that licenses
+  // rewinding. The unique index on (rule, occurrence_date) still prevents
+  // duplicates for dates already materialized.
+  const movedStartEarlier =
+    body.startDate !== undefined && body.startDate < existing.startDate;
+  if (movedStartEarlier) {
+    await repo.setLastMaterialized(id, null);
+  }
+
   const row = await repo.updateRule(id, body);
   if (!row) throw notFound('Recurring rule not found');
 
