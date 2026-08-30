@@ -162,6 +162,27 @@ export async function listFlows(
     .orderBy(desc(transactions.txnDate));
 }
 
+/**
+ * Delete one contribution or withdrawal, but ONLY if it belongs to this fund —
+ * the transaction id comes from the URL, so without the ownership check any row
+ * could be deleted through this route.
+ */
+export async function deleteFlow(
+  investmentId: string,
+  transactionId: string,
+): Promise<boolean> {
+  const rows = await db
+    .delete(transactions)
+    .where(
+      and(
+        eq(transactions.id, transactionId),
+        eq(transactions.investmentId, investmentId),
+      ),
+    )
+    .returning({ id: transactions.id });
+  return rows.length > 0;
+}
+
 export type TInvestmentSummary = {
   activeCount: number;
   fundedCount: number;

@@ -52,6 +52,14 @@ export async function deleteInvestment(
   res.json(await service.remove(paramId(req)));
 }
 
+export async function deleteFlow(req: Request, res: Response): Promise<void> {
+  const { id, transactionId } = req.params as {
+    id: string;
+    transactionId: string;
+  };
+  res.json(await service.removeFlow(id, transactionId));
+}
+
 export async function postContribute(
   req: Request,
   res: Response,

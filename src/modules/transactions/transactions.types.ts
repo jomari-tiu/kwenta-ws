@@ -24,6 +24,13 @@ export type TTransaction = {
    * is derived from it.
    */
   creditLoanId: string | null;
+  /**
+   * Set when this row moves money into or out of an investment. READ-ONLY here
+   * for the same reason as a loan repayment: the fund's balance is derived from
+   * it, so editing the amount from a screen that shows no fund would move the
+   * balance invisibly.
+   */
+  investmentId: string | null;
   recurringRuleId: string | null;
   isEdited: boolean;
   /** For a transfer this is a display-only stand-in; the row has no category. */

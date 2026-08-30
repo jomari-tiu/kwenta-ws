@@ -34,6 +34,7 @@ const listColumns = {
   source: transactions.source,
   installmentPaymentId: transactions.installmentPaymentId,
   creditLoanId: transactions.creditLoanId,
+  investmentId: transactions.investmentId,
   transferAccountId: transactions.transferAccountId,
   transferAccountName: toAccounts.name,
   recurringRuleId: transactions.recurringRuleId,
@@ -50,6 +51,7 @@ const listColumns = {
 
 export type TTransactionJoinedRow = {
   creditLoanId: string | null;
+  investmentId: string | null;
   transferAccountId: string | null;
   transferAccountName: string | null;
   id: string;

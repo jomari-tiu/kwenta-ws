@@ -63,6 +63,11 @@ export const listInvestmentsQuerySchema = z.object({
 
 export const idParamSchema = z.object({ id: z.uuid('Invalid id') });
 
+export const flowParamsSchema = z.object({
+  id: z.uuid('Invalid id'),
+  transactionId: z.uuid('Invalid transaction id'),
+});
+
 export type TCreateInvestmentBody = z.infer<typeof createInvestmentSchema>;
 export type TUpdateInvestmentBody = z.infer<typeof updateInvestmentSchema>;
 export type TContributeBody = z.infer<typeof contributeSchema>;

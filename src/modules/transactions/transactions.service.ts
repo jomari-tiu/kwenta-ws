@@ -27,6 +27,7 @@ export function toDto(row: repo.TTransactionJoinedRow): TTransaction {
     source: row.source,
     installmentPaymentId: row.installmentPaymentId,
     creditLoanId: row.creditLoanId,
+    investmentId: row.investmentId,
     recurringRuleId: row.recurringRuleId,
     isEdited: row.editedAt !== null,
     // A transfer has no category. Rather than making every render site handle
@@ -180,6 +181,12 @@ export async function update(
     );
   }
 
+  if (existing.investmentId) {
+    throw conflict(
+      'This entry belongs to an investment. Edit it from the Investments module.',
+    );
+  }
+
   const nextAccountId = body.accountId ?? existing.accountId;
 
   if (existing.type === 'transfer') {
@@ -221,6 +228,12 @@ export async function remove(id: string): Promise<void> {
   if (existing.creditLoanId) {
     throw conflict(
       'This expense is a credit-loan repayment. Remove it from the Credit Loans module instead.',
+    );
+  }
+
+  if (existing.investmentId) {
+    throw conflict(
+      'This entry belongs to an investment. Remove it from the Investments module instead.',
     );
   }
 

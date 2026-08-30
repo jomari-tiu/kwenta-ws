@@ -224,6 +224,23 @@ export async function remove(
   return { deletedInvestmentId: id, keptTransactionCount };
 }
 
+/**
+ * Undo a contribution or withdrawal. The fund's balance is derived from these
+ * rows, so removing one simply moves it back.
+ */
+export async function removeFlow(
+  id: string,
+  transactionId: string,
+): Promise<TInvestment & { flows: repo.TInvestmentFlow[] }> {
+  const row = await repo.findInvestmentById(id);
+  if (!row) throw notFound('Investment not found');
+
+  const deleted = await repo.deleteFlow(id, transactionId);
+  if (!deleted) throw notFound('Entry not found on this investment');
+
+  return getById(id);
+}
+
 export async function contribute(
   id: string,
   body: TContributeBody,
