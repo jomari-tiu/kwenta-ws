@@ -297,7 +297,10 @@ export async function listJoinedBetween(
       and(
         gte(transactions.txnDate, from),
         lte(transactions.txnDate, to),
-        sql`${transactions.type} <> 'transfer'`,
+        // Transfers ARE included: money moved that day, and a calendar that
+        // hides it shows an empty cell for a day something happened. They are
+        // kept out of the day's income and expense sums separately, in the
+        // calendar service, so the day's net stays correct.
       ),
     )
     .orderBy(asc(transactions.txnDate), asc(transactions.createdAt));

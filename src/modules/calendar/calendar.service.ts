@@ -83,6 +83,12 @@ export type TCalendarDay = {
   expenseCentavos: number;
   netCentavos: number;
   transactionCount: number;
+  /**
+   * Money moved between the owner's own accounts that day. Kept apart from
+   * income and expense because it is neither — folding it in would make the
+   * day's net wrong.
+   */
+  transferCentavos: number;
   hasOverdueInstallment: boolean;
   hasDueInstallment: boolean;
   hasProjectedRecurring: boolean;
@@ -239,6 +245,9 @@ export async function getMonth(monthKey: string): Promise<TCalendarMonth> {
     const expenseCentavos = dayEntries
       .filter((e) => e.type === 'expense')
       .reduce((a, e) => a + e.amountCentavos, 0);
+    const transferCentavos = dayEntries
+      .filter((e) => e.type === 'transfer')
+      .reduce((a, e) => a + e.amountCentavos, 0);
 
     if (inMonth) {
       monthIncome += incomeCentavos;
@@ -257,6 +266,7 @@ export async function getMonth(monthKey: string): Promise<TCalendarMonth> {
       expenseCentavos,
       netCentavos: incomeCentavos - expenseCentavos,
       transactionCount: dayEntries.length,
+      transferCentavos,
       // This is what paints the day RED.
       // What paints the day RED: an overdue installment payment OR an overdue
       // credit loan. A loan with no due date has no day and can never land here.
