@@ -62,7 +62,13 @@ Several details assume a **single instance**: migrate-on-start, the in-memory
 recurring-catchup throttle, and the advisory lock around materialization. True
 on the free tier; revisit before scaling out.
 
-**Build Command**  `npm install && npm run build`
+**Build Command**  `npm ci && npm run build`
+
+The build needs devDependencies — `typescript`, `@types/*`, `drizzle-kit`. Render
+sets `NODE_ENV=production`, which makes npm skip them, so a plain install
+produces `Could not find a declaration file for module 'express'`. The committed
+`.npmrc` (`include=dev`) forces them back in, which is why the build command does
+not need `--include=dev` spelled out.
 
 **Start Command**  `npm run start:prod`
 
