@@ -102,10 +102,19 @@ Generate a secret with:
 node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 ```
 
-**First deploy only** — create the owner account by running `npm run seed:prod`
-in a Render shell. Without it there is no user and login always fails. The seed
-also inserts starter categories and accounts, so if you plan to import a backup,
-import with `mode=replace`.
+**The first deploy seeds itself.** `start:prod` runs `dist/db/bootstrap.js`,
+which migrates every time and seeds ONLY when the users table is empty. Nothing
+to run by hand — which matters, because Render's free tier has no shell.
+
+Seeding is gated on an empty users table rather than made idempotent, because
+"idempotent" is not quite true here: the unique index on categories is PARTIAL
+and covers unarchived rows only, so archiving "Pets" would let a later seed
+insert a second one.
+
+`npm run seed:prod` still exists for seeding a database by hand.
+
+The seed inserts 29 starter categories and 8 accounts, so a database that has
+booted is no longer empty — import a backup with `mode=replace`.
 
 ## Moving your data to another server
 
