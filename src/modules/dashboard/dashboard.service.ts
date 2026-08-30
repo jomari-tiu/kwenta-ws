@@ -9,6 +9,7 @@ import * as budgetsService from '../budgets/budgets.service.js';
 import * as creditLoansService from '../credit-loans/credit-loans.service.js';
 import * as investmentsService from '../investments/investments.service.js';
 import * as installmentsRepo from '../installments/installments.repository.js';
+import * as businessesService from '../businesses/businesses.service.js';
 import * as creditLoansRepo from '../credit-loans/credit-loans.repository.js';
 import * as installmentsService from '../installments/installments.service.js';
 import * as repo from './dashboard.repository.js';
@@ -203,6 +204,19 @@ export type TDashboardSummary = {
     totalGainCentavos: number | null;
     nextTargetDate: string | null;
   };
+  businesses: {
+    activeCount: number;
+    /** Zero means no business holds money separately — nothing is "held". */
+    withOwnAccountCount: number;
+    /** Revenue minus costs across active businesses. Cash-basis. */
+    netCashCentavos: number;
+    /** Cash sitting in the business accounts right now. */
+    heldCentavos: number;
+    /** True when some business's books disagree with its account balance. */
+    hasReconciliationGap: boolean;
+  };
+  /** Business revenue minus costs for the browsed period only. */
+  businessNetCentavos: number;
   creditLoans: {
     openCount: number;
     overdueCount: number;
@@ -232,6 +246,7 @@ export async function summary(
     loans,
     funds,
     dueItems,
+    businesses,
   ] = await Promise.all([
     repo.totalsBetween(w.from, w.to),
     repo.series(w.from, w.to, w.granularity),
@@ -243,8 +258,12 @@ export async function summary(
     creditLoansService.summary(),
     investmentsService.summary(),
     collectDueItems(anchor === todayInAppTz() ? anchor : todayInAppTz()),
+    businessesService.summary(),
   ]);
 
+  // Never negative: a business that has drawn out more than it took in does
+  // not make your personal money larger.
+  const businessHeldCentavos = Math.max(0, businesses.ownedCentavos);
   const net = totals.incomeCentavos - totals.expenseCentavos;
 
   return {
@@ -273,9 +292,26 @@ export async function summary(
     dueItems,
     // Credit cards are excluded on purpose. Their balance is what you OWE, and
     // folding a debt into "money I can spend" understates both.
-    disposableCentavos: balances
-      .filter((a) => a.kind !== 'credit_card')
-      .reduce((sum, a) => sum + a.currentBalanceCentavos, 0),
+    //
+    // Then the businesses' own money comes off the top. Subtracting what the
+    // BOOKS say each business holds, rather than excluding whole accounts, is
+    // what makes this right in both setups: with a dedicated account the two
+    // are equal so it behaves as before, and with a business run out of a
+    // personal bank only the business's share is withheld instead of the
+    // entire salary sitting in it.
+    disposableCentavos:
+      balances
+        .filter((a) => a.kind !== 'credit_card')
+        .reduce((sum, a) => sum + a.currentBalanceCentavos, 0) -
+      businessHeldCentavos,
+    businesses: {
+      activeCount: businesses.activeCount,
+      withOwnAccountCount: businesses.withOwnAccountCount,
+      netCashCentavos: businesses.totalNetCashCentavos,
+      heldCentavos: businesses.totalHeldCentavos,
+      hasReconciliationGap: businesses.hasReconciliationGap,
+    },
+    businessNetCentavos: totals.businessNetCentavos,
     investedCentavos: funds.totalNetContributedCentavos,
     series: fillBuckets(seriesRows, w.from, w.to, w.granularity),
     topCategories: topCategories.slice(0, 8),

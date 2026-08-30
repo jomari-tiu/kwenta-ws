@@ -13,6 +13,7 @@ import { accounts } from './accounts.js';
 import { categories } from './categories.js';
 import { installmentPayments } from './installments.js';
 import { creditLoans } from './credit-loans.js';
+import { businesses } from './businesses.js';
 import { investments } from './investments.js';
 import { recurringRules } from './recurring.js';
 
@@ -97,6 +98,24 @@ export const transactions = pgTable(
     investmentId: uuid('investment_id').references(() => investments.id, {
       onDelete: 'set null',
     }),
+    /**
+     * Set when this row belongs to a business's books. Deliberately just ONE
+     * column, mirroring `investmentId`: the four entry kinds are all derivable,
+     * so storing a second discriminator would only be a redundant copy to keep
+     * honest.
+     *
+     *   revenue  income   on the business account
+     *   cost     expense  on the business account
+     *   capital  transfer INTO the business account
+     *   drawing  transfer OUT of the business account
+     *
+     * Capital and drawings are transfers and not expense/income on purpose —
+     * see the note on the `businesses` table. Tagging them as expense/income
+     * would make every account balance wrong by (capital − drawings).
+     */
+    businessId: uuid('business_id').references(() => businesses.id, {
+      onDelete: 'set null',
+    }),
     /** Destination account. Set for transfers, null for everything else. */
     transferAccountId: uuid('transfer_account_id').references(
       () => accounts.id,
@@ -114,6 +133,11 @@ export const transactions = pgTable(
     index('transactions_account_date_idx').on(t.accountId, t.txnDate),
     index('transactions_credit_loan_idx').on(t.creditLoanId),
     index('transactions_investment_idx').on(t.investmentId),
+    // Partial: the overwhelming majority of rows are personal, and this index
+    // only ever serves `business_id is not null` lookups.
+    index('transactions_business_idx')
+      .on(t.businessId)
+      .where(sql`business_id is not null`),
     // Deliberately NOT partial. Postgres treats NULLs as distinct by default,
     // so the many manual rows with (null, null) never collide — and a plain
     // unique index lets ON CONFLICT (recurring_rule_id, occurrence_date) work

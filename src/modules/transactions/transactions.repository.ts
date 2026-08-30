@@ -16,7 +16,12 @@ import { alias } from 'drizzle-orm/pg-core';
 import { db } from '../../db/client.js';
 import { toCentavos } from '../../common/money.js';
 import type { TPlainDate } from '../../common/date.js';
-import { accounts, categories, transactions } from '../../db/schema/index.js';
+import {
+  accounts,
+  businesses,
+  categories,
+  transactions,
+} from '../../db/schema/index.js';
 import type { TListTransactionsQuery } from './transactions.schema.js';
 
 export type TTransactionRow = typeof transactions.$inferSelect;
@@ -35,6 +40,8 @@ const listColumns = {
   installmentPaymentId: transactions.installmentPaymentId,
   creditLoanId: transactions.creditLoanId,
   investmentId: transactions.investmentId,
+  businessId: transactions.businessId,
+  businessName: businesses.name,
   transferAccountId: transactions.transferAccountId,
   transferAccountName: toAccounts.name,
   recurringRuleId: transactions.recurringRuleId,
@@ -52,6 +59,8 @@ const listColumns = {
 export type TTransactionJoinedRow = {
   creditLoanId: string | null;
   investmentId: string | null;
+  businessId: string | null;
+  businessName: string | null;
   transferAccountId: string | null;
   transferAccountName: string | null;
   id: string;
@@ -83,6 +92,43 @@ function buildFilters(q: TListTransactionsQuery): SQL | undefined {
     q.dateFrom ? gte(transactions.txnDate, q.dateFrom) : undefined,
     q.dateTo ? lte(transactions.txnDate, q.dateTo) : undefined,
     q.type ? eq(transactions.type, q.type) : undefined,
+    // These two must exclude BOTH funds and business rows, matching the
+    // dashboard's Spending and Income tiles exactly. Miss one and clicking a
+    // tile opens a list whose summary is larger than the tile you clicked —
+    // the most visible symptom of the personal/business split going wrong.
+    q.bucket === 'spending'
+      ? and(
+          eq(transactions.type, 'expense'),
+          sql`${transactions.investmentId} is null`,
+          sql`${transactions.businessId} is null`,
+        )
+      : undefined,
+    q.bucket === 'income'
+      ? and(
+          eq(transactions.type, 'income'),
+          sql`${transactions.investmentId} is null`,
+          sql`${transactions.businessId} is null`,
+        )
+      : undefined,
+    // Both directions: a contribution and a withdrawal are the same story.
+    q.bucket === 'invested'
+      ? sql`${transactions.investmentId} is not null`
+      : undefined,
+    // Likewise both directions: revenue, cost, capital and drawings are all
+    // the business's story, and splitting them here would need four buckets.
+    q.bucket === 'business'
+      ? sql`${transactions.businessId} is not null`
+      : undefined,
+    // Excludes business transfers: a capital move belongs in the business's
+    // own bucket, not your personal transfers. With this, the five buckets
+    // partition the ledger exactly once — no row counted twice, none missed.
+    q.bucket === 'transfer'
+      ? and(
+          eq(transactions.type, 'transfer'),
+          sql`${transactions.businessId} is null`,
+        )
+      : undefined,
+    q.businessId ? eq(transactions.businessId, q.businessId) : undefined,
     q.categoryId ? inArray(transactions.categoryId, q.categoryId) : undefined,
     // Either leg: filtering by Cash must surface transfers INTO Cash too,
     // otherwise the account filter disagrees with the account's own balance.
@@ -118,6 +164,12 @@ function orderFor(q: TListTransactionsQuery) {
 export type TListSummary = {
   incomeCentavos: number;
   expenseCentavos: number;
+  /**
+   * Total moved by transfers. Kept out of net on purpose — a transfer changes
+   * no total — but reported, because a bucket made only of transfers would
+   * otherwise show a row count beside ₱0.00 and read as broken.
+   */
+  transferCentavos: number;
   netCentavos: number;
   count: number;
 };
@@ -141,6 +193,7 @@ export async function listTransactions(
       // it from the list entirely — money silently missing from the ledger view.
       .leftJoin(categories, eq(transactions.categoryId, categories.id))
       .leftJoin(toAccounts, eq(transactions.transferAccountId, toAccounts.id))
+      .leftJoin(businesses, eq(transactions.businessId, businesses.id))
       .innerJoin(accounts, eq(transactions.accountId, accounts.id))
       .where(where)
       .orderBy(...orderFor(q))
@@ -153,6 +206,7 @@ export async function listTransactions(
       .select({
         income: sql<string>`coalesce(sum(${transactions.amountCentavos}) filter (where ${transactions.type} = 'income'), 0)`,
         expense: sql<string>`coalesce(sum(${transactions.amountCentavos}) filter (where ${transactions.type} = 'expense'), 0)`,
+        transfer: sql<string>`coalesce(sum(${transactions.amountCentavos}) filter (where ${transactions.type} = 'transfer'), 0)`,
       })
       .from(transactions)
       .where(where),
@@ -160,6 +214,7 @@ export async function listTransactions(
 
   const income = toCentavos(summaryRows[0]?.income);
   const expense = toCentavos(summaryRows[0]?.expense);
+  const transfer = toCentavos(summaryRows[0]?.transfer);
   const total = totals[0]?.value ?? 0;
 
   return {
@@ -168,6 +223,7 @@ export async function listTransactions(
     summary: {
       incomeCentavos: income,
       expenseCentavos: expense,
+      transferCentavos: transfer,
       netCentavos: income - expense,
       count: total,
     },
@@ -186,6 +242,7 @@ export async function streamForExport(
     // it from the list entirely — money silently missing from the ledger view.
     .leftJoin(categories, eq(transactions.categoryId, categories.id))
     .leftJoin(toAccounts, eq(transactions.transferAccountId, toAccounts.id))
+    .leftJoin(businesses, eq(transactions.businessId, businesses.id))
     .innerJoin(accounts, eq(transactions.accountId, accounts.id))
     .where(buildFilters(q))
     .orderBy(...orderFor(q))
@@ -203,6 +260,7 @@ export async function findJoinedById(
     // it from the list entirely — money silently missing from the ledger view.
     .leftJoin(categories, eq(transactions.categoryId, categories.id))
     .leftJoin(toAccounts, eq(transactions.transferAccountId, toAccounts.id))
+    .leftJoin(businesses, eq(transactions.businessId, businesses.id))
     .innerJoin(accounts, eq(transactions.accountId, accounts.id))
     .where(eq(transactions.id, id))
     .limit(1);
@@ -243,43 +301,6 @@ export async function deleteTransaction(id: string): Promise<void> {
   await db.delete(transactions).where(eq(transactions.id, id));
 }
 
-/** Per-day aggregates for a date range, for the calendar grid. */
-export type TDayAggregate = {
-  txnDate: string;
-  incomeCentavos: number;
-  expenseCentavos: number;
-  transactionCount: number;
-};
-
-export async function aggregateByDay(
-  from: TPlainDate,
-  to: TPlainDate,
-): Promise<TDayAggregate[]> {
-  const rows = await db
-    .select({
-      txnDate: transactions.txnDate,
-      income: sql<string>`coalesce(sum(${transactions.amountCentavos}) filter (where ${transactions.type} = 'income'), 0)`,
-      expense: sql<string>`coalesce(sum(${transactions.amountCentavos}) filter (where ${transactions.type} = 'expense'), 0)`,
-      transactionCount: sql<number>`count(*)::int`,
-    })
-    .from(transactions)
-    .where(
-      and(
-        gte(transactions.txnDate, from),
-        lte(transactions.txnDate, to),
-        sql`${transactions.type} <> 'transfer'`,
-      ),
-    )
-    .groupBy(transactions.txnDate);
-
-  return rows.map((r) => ({
-    txnDate: r.txnDate,
-    incomeCentavos: toCentavos(r.income),
-    expenseCentavos: toCentavos(r.expense),
-    transactionCount: r.transactionCount,
-  }));
-}
-
 /** Every transaction in a date range, joined — powers the calendar day panel. */
 export async function listJoinedBetween(
   from: TPlainDate,
@@ -292,6 +313,7 @@ export async function listJoinedBetween(
     // it from the list entirely — money silently missing from the ledger view.
     .leftJoin(categories, eq(transactions.categoryId, categories.id))
     .leftJoin(toAccounts, eq(transactions.transferAccountId, toAccounts.id))
+    .leftJoin(businesses, eq(transactions.businessId, businesses.id))
     .innerJoin(accounts, eq(transactions.accountId, accounts.id))
     .where(
       and(

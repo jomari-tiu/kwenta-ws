@@ -45,6 +45,11 @@ export async function budgetsForMonth(
         eq(transactions.type, 'expense'),
         gte(transactions.txnDate, monthStart),
         lte(transactions.txnDate, monthEnd),
+        // A budget caps what you CONSUME. Money moved into a fund is still
+        // yours, so counting it here made saving look like overspending — and
+        // a business grocery run must not eat the personal Groceries cap.
+        sql`${transactions.investmentId} is null`,
+        sql`${transactions.businessId} is null`,
       ),
     )
     .groupBy(transactions.categoryId)
@@ -70,7 +75,16 @@ export async function budgetsForMonth(
       ),
     )
     .leftJoin(spendSub, eq(spendSub.categoryId, categories.id))
-    .where(and(eq(categories.kind, 'expense'), isNull(categories.archivedAt)))
+    // Personal only: budgets are a personal-spending tool, and listing business
+    // categories here would put unbudgetable rows on the page and spurious
+    // entries in the dashboard's budget alerts.
+    .where(
+      and(
+        eq(categories.kind, 'expense'),
+        eq(categories.scope, 'personal'),
+        isNull(categories.archivedAt),
+      ),
+    )
     .orderBy(asc(categories.sortOrder), asc(categories.name));
 
   return rows.map((r) => ({

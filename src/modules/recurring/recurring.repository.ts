@@ -99,6 +99,9 @@ export async function insertOccurrences(
         txnDate: d,
         categoryId: rule.categoryId,
         accountId: rule.accountId,
+        // Carried through, or a business's shop rent materializes untagged and
+        // drops out of its books every single month.
+        businessId: rule.businessId,
         note: rule.note,
         source: 'recurring' as const,
         recurringRuleId: rule.id,

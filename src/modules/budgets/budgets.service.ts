@@ -107,6 +107,13 @@ async function assertExpenseCategory(categoryId: string): Promise<void> {
   if (category.kind !== 'expense') {
     throw badRequest('Only expense categories can have a budget.');
   }
+  // Budgets are a personal-spending tool. A cap on a business category would
+  // never be shown or enforced, since the budgets query is personal-only.
+  if (category.scope !== 'personal') {
+    throw badRequest(
+      'Business categories cannot have a budget. Track them in the Businesses module.',
+    );
+  }
 }
 
 export async function setDefault(

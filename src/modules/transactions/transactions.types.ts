@@ -31,6 +31,15 @@ export type TTransaction = {
    * balance invisibly.
    */
   investmentId: string | null;
+  /**
+   * Set when this row belongs to a business's books. READ-ONLY here for the
+   * same reason again: the business's net cash is derived from these rows and
+   * is reconciled against its account balance, so an edit made from a screen
+   * that shows neither would break that check silently.
+   */
+  businessId: string | null;
+  /** Display label for the badge and the redirect; null on personal rows. */
+  businessName: string | null;
   recurringRuleId: string | null;
   isEdited: boolean;
   /** For a transfer this is a display-only stand-in; the row has no category. */

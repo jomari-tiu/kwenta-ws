@@ -25,6 +25,8 @@ export const importPayloadSchema = z.object({
   data: z.object({
     categories: tableRows.default([]),
     accounts: tableRows.default([]),
+    businesses: tableRows.default([]),
+    businessMovements: tableRows.default([]),
     recurringRules: tableRows.default([]),
     installmentPlans: tableRows.default([]),
     installmentPayments: tableRows.default([]),

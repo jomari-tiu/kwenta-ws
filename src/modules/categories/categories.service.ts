@@ -17,6 +17,7 @@ function toDto(row: repo.TCategoryRow, transactionCount = 0): TCategory {
     id: row.id,
     name: row.name,
     kind: row.kind,
+    scope: row.scope,
     icon: row.icon,
     color: row.color,
     monthlyBudgetCentavos: row.monthlyBudgetCentavos,
@@ -37,6 +38,7 @@ export async function list(
   const [{ rows, total }, counts] = await Promise.all([
     repo.listCategories({
       kind: query.kind,
+      scope: query.scope,
       search: query.search,
       includeArchived: query.includeArchived ?? false,
       limit,
@@ -62,15 +64,17 @@ export async function create(body: TCreateCategoryBody): Promise<TCategory> {
   if (body.kind === 'income' && body.monthlyBudgetCentavos != null) {
     throw badRequest('Only expense categories can have a monthly budget.');
   }
-  if (await repo.nameTaken(body.kind, body.name)) {
+  const scope = body.scope ?? 'personal';
+  if (await repo.nameTaken(scope, body.kind, body.name)) {
     throw conflict(
-      `A ${body.kind} category named "${body.name}" already exists.`,
+      `A ${scope} ${body.kind} category named "${body.name}" already exists.`,
     );
   }
 
   const row = await repo.insertCategory({
     name: body.name,
     kind: body.kind,
+    scope,
     icon: body.icon ?? null,
     color: body.color ?? null,
     monthlyBudgetCentavos: body.monthlyBudgetCentavos ?? null,
@@ -89,12 +93,17 @@ export async function update(
   if (existing.kind === 'income' && body.monthlyBudgetCentavos != null) {
     throw badRequest('Only expense categories can have a monthly budget.');
   }
-  if (body.name && (await repo.nameTaken(existing.kind, body.name, id))) {
+  if (
+    body.name &&
+    (await repo.nameTaken(existing.scope, existing.kind, body.name, id))
+  ) {
     throw conflict(
-      `A ${existing.kind} category named "${body.name}" already exists.`,
+      `A ${existing.scope} ${existing.kind} category named "${body.name}" already exists.`,
     );
   }
 
+  // `scope` and `kind` are absent from the update schema on purpose: changing
+  // either would retroactively reclassify every transaction filed under it.
   const row = await repo.updateCategory(id, body);
   if (!row) throw notFound('Category not found');
   const counts = await repo.countTransactionsByCategory();

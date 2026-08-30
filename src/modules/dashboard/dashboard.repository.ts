@@ -52,8 +52,10 @@ export async function series(
         lte(transactions.txnDate, to),
         sql`${transactions.type} <> 'transfer'`,
         // Fund movements are excluded here too, so the chart cannot contradict
-        // the Spending tile above it.
+        // the Spending tile above it. Business rows go for the same reason:
+        // this chart is the personal story.
         sql`${transactions.investmentId} is null`,
+        sql`${transactions.businessId} is null`,
       ),
     )
     .groupBy(bucket)
@@ -99,7 +101,9 @@ export async function byCategory(
         lte(transactions.txnDate, to),
         // Otherwise "Savings & Investments" tops the spending list with money
         // you did not spend, and the rows no longer sum to the Spending tile.
+        // Business categories would break it the same way, from the other end.
         sql`${transactions.investmentId} is null`,
+        sql`${transactions.businessId} is null`,
       ),
     )
     .groupBy(categories.id, categories.name, categories.icon, categories.color)
@@ -124,6 +128,13 @@ export type TPeriodTotals = {
   savedCentavos: number;
   /** Everything that left the account, savings included. Drives the true net. */
   expenseCentavos: number;
+  /**
+   * Business revenue minus business costs. Kept as its own term rather than
+   * folded into income/spending, because the personal figures must keep meaning
+   * what they mean — but leaving it out of the headline net entirely would be a
+   * different lie: real money left a real account and would appear nowhere.
+   */
+  businessNetCentavos: number;
 };
 
 /**
@@ -138,15 +149,20 @@ export async function totalsBetween(
   from: TPlainDate,
   to: TPlainDate,
 ): Promise<TPeriodTotals> {
-  const intoFund = sql`${transactions.investmentId} is not null`;
-  const notFund = sql`${transactions.investmentId} is null`;
+  const isBusiness = sql`${transactions.businessId} is not null`;
+  const intoFund = sql`${transactions.investmentId} is not null and ${transactions.businessId} is null`;
+  // "Personal" is neither a fund movement nor a business row. Both exclusions
+  // are structural, never by category name.
+  const personal = sql`${transactions.investmentId} is null and ${transactions.businessId} is null`;
 
   const rows = await db
     .select({
-      income: sql<string>`coalesce(sum(${transactions.amountCentavos}) filter (where ${transactions.type} = 'income' and ${notFund}), 0)`,
-      spending: sql<string>`coalesce(sum(${transactions.amountCentavos}) filter (where ${transactions.type} = 'expense' and ${notFund}), 0)`,
+      income: sql<string>`coalesce(sum(${transactions.amountCentavos}) filter (where ${transactions.type} = 'income' and ${personal}), 0)`,
+      spending: sql<string>`coalesce(sum(${transactions.amountCentavos}) filter (where ${transactions.type} = 'expense' and ${personal}), 0)`,
       fundIn: sql<string>`coalesce(sum(${transactions.amountCentavos}) filter (where ${transactions.type} = 'expense' and ${intoFund}), 0)`,
       fundOut: sql<string>`coalesce(sum(${transactions.amountCentavos}) filter (where ${transactions.type} = 'income' and ${intoFund}), 0)`,
+      businessIn: sql<string>`coalesce(sum(${transactions.amountCentavos}) filter (where ${transactions.type} = 'income' and ${isBusiness}), 0)`,
+      businessOut: sql<string>`coalesce(sum(${transactions.amountCentavos}) filter (where ${transactions.type} = 'expense' and ${isBusiness}), 0)`,
     })
     .from(transactions)
     .where(
@@ -161,15 +177,27 @@ export async function totalsBetween(
   const spending = toCentavos(rows[0]?.spending);
   const fundIn = toCentavos(rows[0]?.fundIn);
   const fundOut = toCentavos(rows[0]?.fundOut);
+  const businessIn = toCentavos(rows[0]?.businessIn);
+  const businessOut = toCentavos(rows[0]?.businessOut);
 
   return {
     incomeCentavos: income,
     spendingCentavos: spending,
     savedCentavos: fundIn - fundOut,
     expenseCentavos: spending + fundIn,
+    businessNetCentavos: businessIn - businessOut,
   };
 }
 
+/**
+ * Everything that ever moved, deliberately unfiltered — fund contributions and
+ * business revenue and costs all count, because this answers "what has passed
+ * through my hands", not "what did I personally earn and spend".
+ *
+ * Capital and drawings are transfers and so are already excluded, which is the
+ * right answer: they shuffle money between two pockets I own and would
+ * otherwise inflate both sides of this figure without changing anything.
+ */
 export async function allTimeTotals(): Promise<{
   incomeCentavos: number;
   expenseCentavos: number;

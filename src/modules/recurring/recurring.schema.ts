@@ -13,6 +13,8 @@ const shared = {
   endDate: plainDate.nullable().optional(),
   categoryId: z.uuid('Category is required'),
   accountId: z.uuid('Account is required'),
+  /** Set to make every generated row part of that business's books. */
+  businessId: z.uuid().nullable().optional(),
   note: z.string().trim().max(200).nullable().optional(),
 };
 
@@ -58,6 +60,7 @@ export const updateRuleSchema = z.object({
   endDate: plainDate.nullable().optional(),
   categoryId: z.uuid().optional(),
   accountId: z.uuid().optional(),
+  businessId: z.uuid().nullable().optional(),
   note: z.string().trim().max(200).nullable().optional(),
 });
 

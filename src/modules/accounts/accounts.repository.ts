@@ -1,8 +1,9 @@
-import { and, asc, count, eq, ilike, isNull, sql } from 'drizzle-orm';
+import { and, asc, count, eq, ilike, isNull, or, sql } from 'drizzle-orm';
 import { db } from '../../db/client.js';
 import { toCentavos } from '../../common/money.js';
 import {
   accounts,
+  businesses,
   installmentPlans,
   recurringRules,
   transactions,
@@ -136,12 +137,26 @@ export async function updateAccount(
   });
 }
 
+/**
+ * Everything that would break if this account vanished. The caller hard-deletes
+ * on 0 and archives above it, so an undercount here is not cosmetic — it is a
+ * delete that then hits a `restrict` FK and surfaces as a raw 500.
+ *
+ * Both transfer legs count. An account used only as a DESTINATION used to
+ * report zero references, which a business account (a constant transfer target
+ * for capital) would hit immediately.
+ */
 export async function countAccountReferences(id: string): Promise<number> {
-  const [txns, rules, plans] = await Promise.all([
+  const [txns, rules, plans, owningBusinesses] = await Promise.all([
     db
       .select({ value: count() })
       .from(transactions)
-      .where(eq(transactions.accountId, id)),
+      .where(
+        or(
+          eq(transactions.accountId, id),
+          eq(transactions.transferAccountId, id),
+        ),
+      ),
     db
       .select({ value: count() })
       .from(recurringRules)
@@ -150,9 +165,16 @@ export async function countAccountReferences(id: string): Promise<number> {
       .select({ value: count() })
       .from(installmentPlans)
       .where(eq(installmentPlans.accountId, id)),
+    db
+      .select({ value: count() })
+      .from(businesses)
+      .where(eq(businesses.accountId, id)),
   ]);
   return (
-    (txns[0]?.value ?? 0) + (rules[0]?.value ?? 0) + (plans[0]?.value ?? 0)
+    (txns[0]?.value ?? 0) +
+    (rules[0]?.value ?? 0) +
+    (plans[0]?.value ?? 0) +
+    (owningBusinesses[0]?.value ?? 0)
   );
 }
 
@@ -208,6 +230,8 @@ export type TAccountHistoryRow = {
   categoryName: string;
   categoryIcon: string | null;
   categoryColor: string | null;
+  /** Which business's books this row belongs to, if any. */
+  businessName: string | null;
   /** Balance AFTER this transaction, opening balance included. */
   runningBalanceCentavos: number;
 };
@@ -240,6 +264,7 @@ export async function historyForAccount(
         c.name  as category_name,
         c.icon  as category_icon,
         c.color as category_color,
+        b.name  as business_name,
         (t.type = 'transfer' and t.transfer_account_id = ${accountId}) as is_incoming,
         ${openingBalanceCentavos}::bigint + sum(
           -- A transfer counts + or − depending on WHICH SIDE this account is
@@ -257,6 +282,7 @@ export async function historyForAccount(
         ) as running_balance
       from transactions t
       left join categories c on c.id = t.category_id
+      left join businesses b on b.id = t.business_id
       where (t.account_id = ${accountId}
              or (t.type = 'transfer' and t.transfer_account_id = ${accountId}))
     )
@@ -287,6 +313,7 @@ export async function historyForAccount(
     is_incoming: boolean;
     category_icon: string | null;
     category_color: string | null;
+    business_name: string | null;
     running_balance: string | number;
   };
 
@@ -306,6 +333,7 @@ export async function historyForAccount(
       isIncoming: r.is_incoming,
       categoryIcon: r.category_icon,
       categoryColor: r.category_color,
+      businessName: r.business_name,
       // sum() over a bigint returns numeric, which postgres.js hands back as a
       // STRING — toCentavos is what stops "1200" + "800" becoming "1200800".
       runningBalanceCentavos: toCentavos(r.running_balance),

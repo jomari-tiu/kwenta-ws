@@ -3,6 +3,8 @@ import { db } from '../../db/client.js';
 import {
   accounts,
   budgetOverrides,
+  businessMovements,
+  businesses,
   categories,
   creditLoans,
   installmentPayments,
@@ -27,6 +29,8 @@ import {
 export const TABLES = [
   { key: 'categories', table: categories },
   { key: 'accounts', table: accounts },
+  { key: 'businesses', table: businesses },
+  { key: 'businessMovements', table: businessMovements },
   { key: 'recurringRules', table: recurringRules },
   { key: 'installmentPlans', table: installmentPlans },
   { key: 'installmentPayments', table: installmentPayments },
@@ -67,6 +71,8 @@ export async function countAll(): Promise<Record<TTableKey, number>> {
  * database. Untouched has to mean "no ledger of your own", not "zero rows".
  */
 const OWNER_DATA_TABLES = [
+  'businesses',
+  'businessMovements',
   'recurringRules',
   'installmentPlans',
   'installmentPayments',
@@ -121,6 +127,8 @@ export async function replaceAll(
         credit_loans,
         investments,
         recurring_rules,
+        business_movements,
+        businesses,
         budget_overrides,
         categories,
         accounts

@@ -28,6 +28,8 @@ export function toDto(row: repo.TTransactionJoinedRow): TTransaction {
     installmentPaymentId: row.installmentPaymentId,
     creditLoanId: row.creditLoanId,
     investmentId: row.investmentId,
+    businessId: row.businessId,
+    businessName: row.businessName,
     recurringRuleId: row.recurringRuleId,
     isEdited: row.editedAt !== null,
     // A transfer has no category. Rather than making every render site handle
@@ -184,6 +186,12 @@ export async function update(
   if (existing.investmentId) {
     throw conflict(
       'This entry belongs to an investment. Edit it from the Investments module.',
+    );
+  }
+
+  if (existing.businessId) {
+    throw conflict(
+      'This entry belongs to a business. Edit it from the Businesses module.',
     );
   }
 

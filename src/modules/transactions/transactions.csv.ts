@@ -12,6 +12,12 @@ const HEADER = [
   'type',
   'category',
   'account',
+  // Without these two the export cannot be reconciled: a transfer looks like a
+  // category-less row with no destination, and a ₱50,000 business cost is
+  // indistinguishable from a personal one, so any spreadsheet total
+  // double-counts.
+  'to account',
+  'business',
   'amount',
   'note',
   'source',
@@ -32,6 +38,8 @@ export async function buildCsv(
         r.type,
         r.categoryName,
         r.accountName,
+        r.transferAccountName,
+        r.businessName,
         // Peso decimals, not centavos — the single deliberate exception, because
         // the consumer is Excel and the column must import as numeric.
         centavosToPesoString(r.amountCentavos),

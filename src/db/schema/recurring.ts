@@ -11,6 +11,7 @@ import {
 } from 'drizzle-orm/pg-core';
 import { centavos, createdAt, day, pk, updatedAt } from './_helpers.js';
 import { accounts } from './accounts.js';
+import { businesses } from './businesses.js';
 import { categories } from './categories.js';
 
 export const RECURRING_FREQUENCIES = [
@@ -47,6 +48,15 @@ export const recurringRules = pgTable(
     accountId: uuid('account_id')
       .notNull()
       .references(() => accounts.id, { onDelete: 'restrict' }),
+    /**
+     * Stamped onto every transaction this rule generates. Shop rent and
+     * business subscriptions are the classic recurring costs; without this they
+     * materialize untagged and drop out of the business books silently, which
+     * is drift guaranteed by construction rather than by accident.
+     */
+    businessId: uuid('business_id').references(() => businesses.id, {
+      onDelete: 'set null',
+    }),
     note: text('note'),
     isActive: boolean('is_active').notNull().default(true),
     /**

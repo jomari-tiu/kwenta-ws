@@ -134,6 +134,7 @@ export async function create(body: TCreateRuleBody): Promise<TRecurringRule> {
     endDate: body.endDate ?? null,
     categoryId: body.categoryId,
     accountId: body.accountId,
+    businessId: body.businessId ?? null,
     note: body.note ?? null,
   });
 
@@ -198,6 +199,9 @@ export async function update(
       : {}),
     ...(body.categoryId !== undefined ? { categoryId: body.categoryId } : {}),
     ...(body.accountId !== undefined ? { accountId: body.accountId } : {}),
+    ...(body.businessId !== undefined
+      ? { businessId: body.businessId ?? null }
+      : {}),
     ...(body.note !== undefined ? { note: body.note ?? null } : {}),
   };
 

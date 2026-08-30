@@ -6,23 +6,30 @@ import {
   recurringRules,
   transactions,
 } from '../../db/schema/index.js';
-import type { TCategoryKind } from '../../db/schema/index.js';
+import type { TCategoryKind, TCategoryScope } from '../../db/schema/index.js';
 
 export type TCategoryRow = typeof categories.$inferSelect;
 export type TCategoryInsert = typeof categories.$inferInsert;
 
 export type TListCategoriesArgs = {
   kind?: TCategoryKind;
+  scope?: TCategoryScope;
   search?: string;
   includeArchived: boolean;
   limit: number;
   offset: number;
 };
 
-function listWhere({ kind, search, includeArchived }: TListCategoriesArgs) {
+function listWhere({
+  kind,
+  scope,
+  search,
+  includeArchived,
+}: TListCategoriesArgs) {
   return and(
     includeArchived ? undefined : isNull(categories.archivedAt),
     kind ? eq(categories.kind, kind) : undefined,
+    scope ? eq(categories.scope, scope) : undefined,
     search ? ilike(categories.name, `%${search}%`) : undefined,
   );
 }
@@ -164,8 +171,13 @@ export async function findWritableCategory(
   return rows[0];
 }
 
-/** Name collision check that mirrors the partial unique index. */
+/**
+ * Name collision check that mirrors the partial unique index — which is keyed
+ * on (scope, kind, lower(name)). Leave scope out and a business "Rent" is
+ * wrongly rejected because a personal one exists.
+ */
 export async function nameTaken(
+  scope: TCategoryScope,
   kind: TCategoryKind,
   name: string,
   exceptId?: string,
@@ -175,6 +187,7 @@ export async function nameTaken(
     .from(categories)
     .where(
       and(
+        eq(categories.scope, scope),
         eq(categories.kind, kind),
         sql`lower(${categories.name}) = lower(${name})`,
         isNull(categories.archivedAt),

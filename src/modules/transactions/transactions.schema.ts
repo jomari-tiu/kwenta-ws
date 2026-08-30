@@ -70,8 +70,20 @@ export const listTransactionsQuerySchema = z.object({
   dateFrom: plainDate.optional(),
   dateTo: plainDate.optional(),
   type: z.enum([...LEDGER_TYPES, 'transfer']).optional(),
+  /**
+   * One of the four kinds of movement the app distinguishes, as a single
+   * filter. It exists because "expense" alone is not a useful bucket: a fund
+   * contribution is an expense row but is not spending, and the dashboard and
+   * calendar already split them this way. Keeping the rule here means all three
+   * screens agree by construction rather than by three copies of a predicate.
+   */
+  bucket: z
+    .enum(['spending', 'income', 'invested', 'business', 'transfer'])
+    .optional(),
   categoryId: uuidList.optional(),
   accountId: uuidList.optional(),
+  /** Narrow to one business's books. */
+  businessId: z.uuid().optional(),
   amountMinCentavos: z.coerce.number().int().nonnegative().optional(),
   amountMaxCentavos: z.coerce.number().int().nonnegative().optional(),
   search: z.string().trim().optional(),

@@ -1,9 +1,11 @@
-import type { TCategoryKind } from '../../db/schema/index.js';
+import type { TCategoryKind, TCategoryScope } from '../../db/schema/index.js';
 
 export type TCategory = {
   id: string;
   name: string;
   kind: TCategoryKind;
+  /** Which set of books this belongs to. Immutable after creation. */
+  scope: TCategoryScope;
   icon: string | null;
   color: string | null;
   monthlyBudgetCentavos: number | null;
