@@ -15,9 +15,22 @@ export async function listLoans(
     db
       .select()
       .from(creditLoans)
-      // Loans with a due date come first, soonest first; undated ones trail —
-      // there is nothing to be urgent about.
+      // Settled loans sink to the bottom, then soonest due first, then undated
+      // ones — there is nothing to be urgent about on either.
+      //
+      // Sorting by due date ALONE is technically correct and practically
+      // useless: an old settled debt has the earliest date, so the list opens
+      // with everything already paid and buries what is still owed.
+      //
+      // "Settled" is derived, never stored, so it is recomputed here: repaid
+      // in full is settled, and so is anything explicitly closed.
       .orderBy(
+        sql`case when ${creditLoans.closedAt} is not null then 1
+                 when coalesce((
+                   select sum(t.amount_centavos) from transactions t
+                   where t.credit_loan_id = ${creditLoans.id}
+                 ), 0) >= ${creditLoans.principalCentavos} then 1
+                 else 0 end`,
         sql`${creditLoans.dueDate} is null`,
         asc(creditLoans.dueDate),
         desc(creditLoans.createdAt),

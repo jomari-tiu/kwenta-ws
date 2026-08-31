@@ -188,30 +188,3 @@ export async function totalsBetween(
     businessNetCentavos: businessIn - businessOut,
   };
 }
-
-/**
- * Everything that ever moved, deliberately unfiltered — fund contributions and
- * business revenue and costs all count, because this answers "what has passed
- * through my hands", not "what did I personally earn and spend".
- *
- * Capital and drawings are transfers and so are already excluded, which is the
- * right answer: they shuffle money between two pockets I own and would
- * otherwise inflate both sides of this figure without changing anything.
- */
-export async function allTimeTotals(): Promise<{
-  incomeCentavos: number;
-  expenseCentavos: number;
-}> {
-  const rows = await db
-    .select({
-      income: sql<string>`coalesce(sum(${transactions.amountCentavos}) filter (where ${transactions.type} = 'income'), 0)`,
-      expense: sql<string>`coalesce(sum(${transactions.amountCentavos}) filter (where ${transactions.type} = 'expense'), 0)`,
-    })
-    .from(transactions)
-    .where(sql`${transactions.type} <> 'transfer'`);
-
-  return {
-    incomeCentavos: toCentavos(rows[0]?.income),
-    expenseCentavos: toCentavos(rows[0]?.expense),
-  };
-}

@@ -2,7 +2,12 @@ import { and, asc, count, desc, eq, isNull, lte, sql } from 'drizzle-orm';
 import { db } from '../../db/client.js';
 import type { TPlainDate } from '../../common/date.js';
 import { toCentavos } from '../../common/money.js';
-import { investments, transactions } from '../../db/schema/index.js';
+import {
+  accounts,
+  categories,
+  investments,
+  transactions,
+} from '../../db/schema/index.js';
 
 export type TInvestmentRow = typeof investments.$inferSelect;
 export type TInvestmentInsert = typeof investments.$inferInsert;
@@ -162,6 +167,10 @@ export type TInvestmentFlow = {
   amountCentavos: number;
   txnDate: string;
   note: string | null;
+  /** Which account the money moved through — the history reads as anonymous
+   * amounts without it, and contributions can now come from any account. */
+  accountName: string;
+  categoryName: string | null;
 };
 
 export async function listFlows(
@@ -174,8 +183,12 @@ export async function listFlows(
       amountCentavos: transactions.amountCentavos,
       txnDate: transactions.txnDate,
       note: transactions.note,
+      accountName: accounts.name,
+      categoryName: categories.name,
     })
     .from(transactions)
+    .innerJoin(accounts, eq(transactions.accountId, accounts.id))
+    .leftJoin(categories, eq(transactions.categoryId, categories.id))
     .where(eq(transactions.investmentId, investmentId))
     .orderBy(desc(transactions.txnDate));
 }
@@ -208,8 +221,22 @@ export type TInvestmentSummary = {
   totalNetContributedCentavos: number;
   /** Null when NOTHING is valued — showing ₱0 would read as a total loss. */
   totalCurrentValueCentavos: number | null;
-  /** Gain across valued funds only. Null when nothing is valued. */
-  totalGainCentavos: number | null;
+  /**
+   * What every active fund holds: its valuation when it has one, otherwise
+   * what was put in. Unlike totalCurrentValue this covers unvalued funds too,
+   * so it is the honest "how much is in my pots" figure.
+   */
+  totalHeldCentavos: number;
+  /**
+   * Money sitting in the funds that this app never saw arrive — pots already
+   * funded before tracking started.
+   *
+   * Computed PER FUND and floored at zero, never as one subtraction across the
+   * whole portfolio. Taking total contributions off total value lets a
+   * contribution to an UNVALUED fund eat into a valued fund's untracked
+   * balance, which reads as money being deducted from a pot nobody touched.
+   */
+  untrackedCentavos: number;
   nextTargetDate: string | null;
 };
 
@@ -224,8 +251,9 @@ export async function summary(): Promise<TInvestmentSummary> {
   let untargetedCount = 0;
   let net = 0;
   let valued = 0;
-  let valuedNet = 0;
   let hasValued = false;
+  let held = 0;
+  let untracked = 0;
   let nextTargetDate: string | null = null;
 
   for (const row of rows) {
@@ -245,9 +273,12 @@ export async function summary(): Promise<TInvestmentSummary> {
     if (row.currentValueCentavos !== null) {
       hasValued = true;
       valued += row.currentValueCentavos;
-      // Gain is only meaningful against the funds that HAVE a valuation, so the
-      // comparison base is those funds' contributions, not every fund's.
-      valuedNet += netContributed;
+      held += row.currentValueCentavos;
+      // Only THIS fund's contributions count against THIS fund's value.
+      untracked += Math.max(0, row.currentValueCentavos - netContributed);
+    } else {
+      // Unvalued: what went in is the best available answer for what it holds.
+      held += netContributed;
     }
 
     if (row.targetDate !== null) {
@@ -263,7 +294,8 @@ export async function summary(): Promise<TInvestmentSummary> {
     untargetedCount,
     totalNetContributedCentavos: net,
     totalCurrentValueCentavos: hasValued ? valued : null,
-    totalGainCentavos: hasValued ? valued - valuedNet : null,
+    totalHeldCentavos: held,
+    untrackedCentavos: untracked,
     nextTargetDate,
   };
 }

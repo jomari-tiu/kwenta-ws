@@ -46,6 +46,35 @@ const DUE_HORIZON_DAYS = 30;
 const DUE_SOON_DAYS = 7;
 /** Every pending payment ever, however far back — an old miss is still owed. */
 const FAR_PAST = '1900-01-01';
+/** Unbounded upper edge, so "all time" needs no special-case query. */
+const FAR_FUTURE = '9999-12-31';
+
+/**
+ * The ONE definition of net: what you earned, less what you consumed, less
+ * what you moved into a fund. Business results are excluded deliberately.
+ *
+ * A function rather than two inline expressions because the period figure and
+ * the all-time figure MUST agree — they were computed differently, and a
+ * single month came out larger than the whole history.
+ */
+function netOf(t: {
+  incomeCentavos: number;
+  spendingCentavos: number;
+  savedCentavos: number;
+  businessNetCentavos: number;
+}): number {
+  // Business results ARE included. They were left out at first so the personal
+  // figures stayed personal, but a business funds itself from these same
+  // accounts, so excluding it let net look healthy while real money drained
+  // away. Including it also makes ALL-TIME net equal the money actually in the
+  // accounts — every peso accounted for exactly once.
+  return (
+    t.incomeCentavos -
+    t.spendingCentavos -
+    t.savedCentavos +
+    t.businessNetCentavos
+  );
+}
 
 function daysBetween(from: string, to: string): number {
   const a = Date.UTC(
@@ -201,7 +230,10 @@ export type TDashboardSummary = {
     totalNetContributedCentavos: number;
     /** Null when nothing is valued — a ₱0 total would read as a total loss. */
     totalCurrentValueCentavos: number | null;
-    totalGainCentavos: number | null;
+    /** Value when set, else contributions — across every active fund. */
+    totalHeldCentavos: number;
+    /** Money in the pots this app never saw arrive. Per-fund, floored at zero. */
+    untrackedCentavos: number;
     nextTargetDate: string | null;
   };
   businesses: {
@@ -212,6 +244,9 @@ export type TDashboardSummary = {
     netCashCentavos: number;
     /** Cash sitting in the business accounts right now. */
     heldCentavos: number;
+    /** Money put in as capital, and money drawn back out. */
+    capitalCentavos: number;
+    drawingCentavos: number;
     /** True when some business's books disagree with its account balance. */
     hasReconciliationGap: boolean;
   };
@@ -251,7 +286,10 @@ export async function summary(
     repo.totalsBetween(w.from, w.to),
     repo.series(w.from, w.to, w.granularity),
     repo.byCategory(w.from, w.to, 'expense'),
-    repo.allTimeTotals(),
+    // The SAME function as the period totals, over an unbounded range. A
+    // separate all-time query drifted: it counted fund contributions and
+    // business costs, so one month could out-earn all time.
+    repo.totalsBetween(FAR_PAST, FAR_FUTURE),
     accountsService.balances(),
     installmentsService.summary(),
     budgetsService.forMonth(monthKeyOf(anchor)),
@@ -264,7 +302,7 @@ export async function summary(
   // Never negative: a business that has drawn out more than it took in does
   // not make your personal money larger.
   const businessHeldCentavos = Math.max(0, businesses.ownedCentavos);
-  const net = totals.incomeCentavos - totals.expenseCentavos;
+  const net = netOf(totals);
 
   return {
     period,
@@ -286,7 +324,7 @@ export async function summary(
               totals.incomeCentavos) *
               100,
           ),
-    netBalanceAllTimeCentavos: allTime.incomeCentavos - allTime.expenseCentavos,
+    netBalanceAllTimeCentavos: netOf(allTime),
     // Always "as of today", never the browsed period: what you owe does not
     // change because you clicked back to July.
     dueItems,
@@ -309,6 +347,8 @@ export async function summary(
       withOwnAccountCount: businesses.withOwnAccountCount,
       netCashCentavos: businesses.totalNetCashCentavos,
       heldCentavos: businesses.totalHeldCentavos,
+      capitalCentavos: businesses.totalCapitalCentavos,
+      drawingCentavos: businesses.totalDrawingCentavos,
       hasReconciliationGap: businesses.hasReconciliationGap,
     },
     businessNetCentavos: totals.businessNetCentavos,
@@ -341,7 +381,8 @@ export async function summary(
       untargetedCount: funds.untargetedCount,
       totalNetContributedCentavos: funds.totalNetContributedCentavos,
       totalCurrentValueCentavos: funds.totalCurrentValueCentavos,
-      totalGainCentavos: funds.totalGainCentavos,
+      totalHeldCentavos: funds.totalHeldCentavos,
+      untrackedCentavos: funds.untrackedCentavos,
       nextTargetDate: funds.nextTargetDate,
     },
     creditLoans: {

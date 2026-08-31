@@ -37,18 +37,20 @@ export type TInvestment = {
    * here, and reading 0% in that case is simply wrong.
    */
   heldCentavos: number;
+  /**
+   * Money in this pot that the app never saw arrive: its valuation minus what
+   * was contributed here, floored at zero. Zero when unvalued — an unvalued
+   * fund is known only by what went in, so nothing is unaccounted for.
+   *
+   * Derived HERE rather than in the UI so the card, the dialog and the summary
+   * tile cannot drift apart, which is precisely how this figure went wrong.
+   */
+  untrackedCentavos: number;
   /** Null when there is no target — the UI shows no progress bar at all. */
   percentToTarget: number | null;
   targetDate: string | null;
   currentValueCentavos: number | null;
   valueAsOf: string | null;
-  /**
-   * currentValue − netContributed. Null when the fund is not valued OR when
-   * nothing has been contributed through the app — there is no base to gain on.
-   */
-  gainCentavos: number | null;
-  /** Null when not valued, or when nothing has been put in yet. */
-  gainPercent: number | null;
   categoryId: string;
   accountId: string;
   note: string | null;
@@ -74,14 +76,6 @@ function toDto(row: repo.TInvestmentRow, flows: repo.TFlows): TInvestment {
   const held = row.currentValueCentavos ?? net;
   const status = deriveStatus(row, net);
 
-  // Gain needs a contribution base to be gain at all. Valuing a fund whose
-  // contributions predate the app would otherwise report the WHOLE balance as
-  // profit — so with nothing logged in, there is a value but no gain.
-  const gainCentavos =
-    row.currentValueCentavos === null || net <= 0
-      ? null
-      : row.currentValueCentavos - net;
-
   return {
     id: row.id,
     name: row.name,
@@ -92,6 +86,10 @@ function toDto(row: repo.TInvestmentRow, flows: repo.TFlows): TInvestment {
     netContributedCentavos: net,
     targetCentavos: row.targetCentavos,
     heldCentavos: held,
+    untrackedCentavos:
+      row.currentValueCentavos === null
+        ? 0
+        : Math.max(0, row.currentValueCentavos - net),
     percentToTarget:
       row.targetCentavos === null || row.targetCentavos === 0
         ? null
@@ -102,9 +100,6 @@ function toDto(row: repo.TInvestmentRow, flows: repo.TFlows): TInvestment {
     targetDate: row.targetDate,
     currentValueCentavos: row.currentValueCentavos,
     valueAsOf: row.valueAsOf,
-    gainCentavos,
-    gainPercent:
-      gainCentavos === null ? null : Math.round((gainCentavos / net) * 100),
     categoryId: row.categoryId,
     accountId: row.accountId,
     note: row.note,
@@ -258,6 +253,25 @@ export async function removeFlow(
   return getById(id);
 }
 
+/**
+ * Keep a fund's stated value in step with money actually moving in or out.
+ *
+ * Only funds that HAVE a value are touched: an unvalued fund is tracked purely
+ * by what was put in, and inventing a valuation for it would be the app making
+ * up a number. Clamped at zero because the column forbids a negative value.
+ */
+async function bumpValue(
+  row: repo.TInvestmentRow,
+  deltaCentavos: number,
+  on: string | undefined,
+): Promise<void> {
+  if (row.currentValueCentavos === null) return;
+  await repo.updateInvestment(row.id, {
+    currentValueCentavos: Math.max(0, row.currentValueCentavos + deltaCentavos),
+    valueAsOf: on ?? todayInAppTz(),
+  });
+}
+
 export async function contribute(
   id: string,
   body: TContributeBody,
@@ -283,6 +297,11 @@ export async function contribute(
     accountId,
     note: body.note?.trim() ? body.note.trim() : `${row.name} — contribution`,
   });
+
+  // Money going in makes the pot worth more. Leaving the stated value frozen
+  // is what made a valued fund read as though the contribution vanished — and
+  // then reported the untracked opening balance as profit.
+  await bumpValue(row, body.amountCentavos, body.paidDate);
 
   return { investment: await getById(id), transactionId };
 }
@@ -325,6 +344,9 @@ export async function withdraw(
     accountId,
     note: body.note?.trim() ? body.note.trim() : `${row.name} — withdrawal`,
   });
+
+  // Mirror of a contribution: taking money out makes the pot worth less.
+  await bumpValue(row, -body.amountCentavos, body.paidDate);
 
   return { investment: await getById(id), transactionId };
 }

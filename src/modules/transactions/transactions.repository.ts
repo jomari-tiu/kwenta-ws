@@ -162,8 +162,20 @@ function orderFor(q: TListTransactionsQuery) {
 }
 
 export type TListSummary = {
+  /** Personal income: excludes fund withdrawals and business revenue. */
   incomeCentavos: number;
+  /**
+   * EVERY expense row, funds and business costs included. Kept as the raw
+   * total because a filtered list should be able to say what left the account,
+   * but it is NOT what net is built from — see below.
+   */
   expenseCentavos: number;
+  /** Money consumed: excludes fund contributions and business costs. */
+  spendingCentavos: number;
+  /** Net moved into funds. Yours still — neither spending nor income. */
+  savedCentavos: number;
+  /** Business revenue minus costs. Kept out of the personal figures. */
+  businessNetCentavos: number;
   /**
    * Total moved by transfers. Kept out of net on purpose — a transfer changes
    * no total — but reported, because a bucket made only of transfers would
@@ -204,8 +216,17 @@ export async function listTransactions(
     // question the list view exists to answer.
     db
       .select({
-        income: sql<string>`coalesce(sum(${transactions.amountCentavos}) filter (where ${transactions.type} = 'income'), 0)`,
+        // Split exactly as the dashboard splits it. Summing every expense row
+        // into one "expense" total and calling income minus that "net" counts
+        // saving as a loss — ₱54,000 put into funds made a good month read as
+        // −₱1,312. Same structural rule: personal is neither fund nor business.
+        income: sql<string>`coalesce(sum(${transactions.amountCentavos}) filter (where ${transactions.type} = 'income' and ${transactions.investmentId} is null and ${transactions.businessId} is null), 0)`,
         expense: sql<string>`coalesce(sum(${transactions.amountCentavos}) filter (where ${transactions.type} = 'expense'), 0)`,
+        spending: sql<string>`coalesce(sum(${transactions.amountCentavos}) filter (where ${transactions.type} = 'expense' and ${transactions.investmentId} is null and ${transactions.businessId} is null), 0)`,
+        fundIn: sql<string>`coalesce(sum(${transactions.amountCentavos}) filter (where ${transactions.type} = 'expense' and ${transactions.investmentId} is not null), 0)`,
+        fundOut: sql<string>`coalesce(sum(${transactions.amountCentavos}) filter (where ${transactions.type} = 'income' and ${transactions.investmentId} is not null), 0)`,
+        businessIn: sql<string>`coalesce(sum(${transactions.amountCentavos}) filter (where ${transactions.type} = 'income' and ${transactions.businessId} is not null), 0)`,
+        businessOut: sql<string>`coalesce(sum(${transactions.amountCentavos}) filter (where ${transactions.type} = 'expense' and ${transactions.businessId} is not null), 0)`,
         transfer: sql<string>`coalesce(sum(${transactions.amountCentavos}) filter (where ${transactions.type} = 'transfer'), 0)`,
       })
       .from(transactions)
@@ -214,8 +235,14 @@ export async function listTransactions(
 
   const income = toCentavos(summaryRows[0]?.income);
   const expense = toCentavos(summaryRows[0]?.expense);
+  const spending = toCentavos(summaryRows[0]?.spending);
+  const fundIn = toCentavos(summaryRows[0]?.fundIn);
+  const fundOut = toCentavos(summaryRows[0]?.fundOut);
+  const businessIn = toCentavos(summaryRows[0]?.businessIn);
+  const businessOut = toCentavos(summaryRows[0]?.businessOut);
   const transfer = toCentavos(summaryRows[0]?.transfer);
   const total = totals[0]?.value ?? 0;
+  const businessNet = businessIn - businessOut;
 
   return {
     rows: rows,
@@ -223,8 +250,16 @@ export async function listTransactions(
     summary: {
       incomeCentavos: income,
       expenseCentavos: expense,
+      spendingCentavos: spending,
+      savedCentavos: fundIn - fundOut,
+      businessNetCentavos: businessNet,
       transferCentavos: transfer,
-      netCentavos: income - expense,
+      // EXACTLY the dashboard's formula: income − spending − saved. Money put
+      // into a fund is not spending, but it is allocated, so net is what was
+      // left over unallocated. Business results are reported separately and
+      // deliberately excluded — the personal figure must keep meaning what it
+      // means on the dashboard, or the same month reads two different ways.
+      netCentavos: income - spending - (fundIn - fundOut) + businessNet,
       count: total,
     },
   };
