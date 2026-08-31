@@ -101,14 +101,32 @@ export async function updateInvestment(
  */
 export async function deleteInvestment(
   id: string,
-): Promise<{ keptTransactionCount: number }> {
+  removeTransactions: boolean,
+): Promise<{ keptTransactionCount: number; removedTransactionCount: number }> {
   return db.transaction(async (tx) => {
-    const kept = await tx
+    const linked = await tx
       .select({ value: count() })
       .from(transactions)
       .where(eq(transactions.investmentId, id));
+    const n = linked[0]?.value ?? 0;
+
+    // KEEPING them leaves the ledger untouched: those pesos really did leave
+    // the account, and a fund record disappearing does not undo that.
+    // REMOVING them is the "I never actually moved this money" case — the
+    // expenses go, so the account balances rise back by exactly what went in.
+    //
+    // The caller must choose, because both answers are wrong half the time,
+    // and silently picking one is how money goes missing from an account with
+    // nothing appearing to have happened.
+    if (removeTransactions) {
+      await tx.delete(transactions).where(eq(transactions.investmentId, id));
+    }
     await tx.delete(investments).where(eq(investments.id, id));
-    return { keptTransactionCount: kept[0]?.value ?? 0 };
+
+    return {
+      keptTransactionCount: removeTransactions ? 0 : n,
+      removedTransactionCount: removeTransactions ? n : 0,
+    };
   });
 }
 

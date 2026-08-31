@@ -8,6 +8,7 @@ import {
 import * as controller from './investments.controller.js';
 import {
   contributeSchema,
+  deleteInvestmentQuerySchema,
   flowParamsSchema,
   createInvestmentSchema,
   idParamSchema,
@@ -45,6 +46,7 @@ investmentsRoutes.patch(
 investmentsRoutes.delete(
   '/:id',
   validateParams(idParamSchema),
+  validateQuery(deleteInvestmentQuerySchema),
   asyncHandler(controller.deleteInvestment),
 );
 investmentsRoutes.delete(

@@ -3,6 +3,7 @@ import { bodyOf, paramId, queryOf } from '../../common/validate.js';
 import * as service from './investments.service.js';
 import type {
   TContributeBody,
+  TDeleteInvestmentQuery,
   TCreateInvestmentBody,
   TListInvestmentsQuery,
   TUpdateInvestmentBody,
@@ -49,7 +50,8 @@ export async function deleteInvestment(
   req: Request,
   res: Response,
 ): Promise<void> {
-  res.json(await service.remove(paramId(req)));
+  const { removeTransactions } = queryOf<TDeleteInvestmentQuery>(req);
+  res.json(await service.remove(paramId(req), removeTransactions ?? false));
 }
 
 export async function deleteFlow(req: Request, res: Response): Promise<void> {

@@ -29,6 +29,14 @@ export type TInvestment = {
   withdrawnCentavos: number;
   netContributedCentavos: number;
   targetCentavos: number | null;
+  /**
+   * What the pot actually holds: the hand-entered valuation when there is one,
+   * otherwise what has been contributed through the app. This is what progress
+   * is measured against — a fund you have told the app is worth ₱50,000 is
+   * halfway to a ₱100,000 goal whether or not those contributions were logged
+   * here, and reading 0% in that case is simply wrong.
+   */
+  heldCentavos: number;
   /** Null when there is no target — the UI shows no progress bar at all. */
   percentToTarget: number | null;
   targetDate: string | null;
@@ -61,6 +69,9 @@ export function deriveStatus(
 
 function toDto(row: repo.TInvestmentRow, flows: repo.TFlows): TInvestment {
   const net = flows.contributed - flows.withdrawn;
+  // A valuation, once given, is the better answer to "how much is in there" —
+  // it accounts for contributions made before this app existed, and for growth.
+  const held = row.currentValueCentavos ?? net;
   const status = deriveStatus(row, net);
 
   // Gain needs a contribution base to be gain at all. Valuing a fund whose
@@ -80,12 +91,13 @@ function toDto(row: repo.TInvestmentRow, flows: repo.TFlows): TInvestment {
     withdrawnCentavos: flows.withdrawn,
     netContributedCentavos: net,
     targetCentavos: row.targetCentavos,
+    heldCentavos: held,
     percentToTarget:
       row.targetCentavos === null || row.targetCentavos === 0
         ? null
         : Math.max(
             0,
-            Math.min(100, Math.round((net / row.targetCentavos) * 100)),
+            Math.min(100, Math.round((held / row.targetCentavos) * 100)),
           ),
     targetDate: row.targetDate,
     currentValueCentavos: row.currentValueCentavos,
@@ -217,11 +229,16 @@ export async function update(
 
 export async function remove(
   id: string,
-): Promise<{ deletedInvestmentId: string; keptTransactionCount: number }> {
+  removeTransactions = false,
+): Promise<{
+  deletedInvestmentId: string;
+  keptTransactionCount: number;
+  removedTransactionCount: number;
+}> {
   const existing = await repo.findInvestmentById(id);
   if (!existing) throw notFound('Investment not found');
-  const { keptTransactionCount } = await repo.deleteInvestment(id);
-  return { deletedInvestmentId: id, keptTransactionCount };
+  const counts = await repo.deleteInvestment(id, removeTransactions);
+  return { deletedInvestmentId: id, ...counts };
 }
 
 /**

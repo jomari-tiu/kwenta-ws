@@ -63,6 +63,22 @@ export const listInvestmentsQuerySchema = z.object({
 
 export const idParamSchema = z.object({ id: z.uuid('Invalid id') });
 
+/**
+ * Whether deleting the fund also deletes the contributions it recorded.
+ * Defaults to false: leaving real money movements alone is the conservative
+ * answer, and the UI asks outright rather than leaning on this default.
+ */
+export const deleteInvestmentQuerySchema = z.object({
+  removeTransactions: z
+    .enum(['true', 'false'])
+    .transform((v) => v === 'true')
+    .optional(),
+});
+
+export type TDeleteInvestmentQuery = z.infer<
+  typeof deleteInvestmentQuerySchema
+>;
+
 export const flowParamsSchema = z.object({
   id: z.uuid('Invalid id'),
   transactionId: z.uuid('Invalid transaction id'),
