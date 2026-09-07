@@ -321,6 +321,29 @@ export async function listEntries(
  * id comes from the URL, so without the ownership check any row in the ledger
  * could be deleted through this route.
  */
+/**
+ * The credit loan this business row repays, if it is one.
+ *
+ * `undefined` = no such row on this business; `null` = an ordinary entry.
+ * The caller needs the two apart to tell "not found" from "found, deletable".
+ */
+export async function creditLoanIdOfEntry(
+  businessId: string,
+  transactionId: string,
+): Promise<string | null | undefined> {
+  const rows = await db
+    .select({ creditLoanId: transactions.creditLoanId })
+    .from(transactions)
+    .where(
+      and(
+        eq(transactions.id, transactionId),
+        eq(transactions.businessId, businessId),
+      ),
+    )
+    .limit(1);
+  return rows[0]?.creditLoanId;
+}
+
 export async function deleteEntry(
   businessId: string,
   transactionId: string,

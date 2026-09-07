@@ -50,6 +50,13 @@
       "when": 1788085622325,
       "tag": "0006_first_spirit",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1788683064192,
+      "tag": "0007_lame_cable",
+      "breakpoints": true
     }
   ]
 }

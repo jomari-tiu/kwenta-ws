@@ -18,6 +18,12 @@ export const createCreditLoanSchema = z.object({
   dueDate: plainDate.nullable().optional(),
   categoryId: z.uuid('Category is required'),
   accountId: z.uuid('Account is required'),
+  /**
+   * OPTIONAL, and explicitly nullable so an existing loan can be moved back to
+   * personal. Set it and every repayment is stamped with it, landing the cost
+   * in that business's books instead of personal spending.
+   */
+  businessId: z.uuid().nullable().optional(),
   note: z.string().trim().max(200).nullable().optional(),
 });
 

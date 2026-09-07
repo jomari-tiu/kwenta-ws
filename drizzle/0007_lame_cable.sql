@@ -1,0 +1,3 @@
+ALTER TABLE "credit_loans" ADD COLUMN "business_id" uuid;--> statement-breakpoint
+ALTER TABLE "credit_loans" ADD CONSTRAINT "credit_loans_business_id_businesses_id_fk" FOREIGN KEY ("business_id") REFERENCES "public"."businesses"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+CREATE INDEX "credit_loans_business_idx" ON "credit_loans" USING btree ("business_id") WHERE business_id is not null;

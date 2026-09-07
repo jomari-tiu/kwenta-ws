@@ -134,6 +134,10 @@ export async function insertRepayment(args: {
       note: args.note,
       source: 'manual',
       creditLoanId: args.loan.id,
+      // The whole feature, in one column. A business-tagged expense is a COST:
+      // it drops out of personal spending and into that business's net cash,
+      // and shows up in its entry list, with nothing else to keep in step.
+      businessId: args.loan.businessId,
     })
     .returning({ id: transactions.id });
   return { transactionId: rows[0]!.id };

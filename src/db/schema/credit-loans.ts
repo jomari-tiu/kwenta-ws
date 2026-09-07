@@ -2,6 +2,7 @@ import { sql } from 'drizzle-orm';
 import { check, index, pgTable, text, uuid } from 'drizzle-orm/pg-core';
 import { centavos, createdAt, day, pk, updatedAt } from './_helpers.js';
 import { accounts } from './accounts.js';
+import { businesses } from './businesses.js';
 import { categories } from './categories.js';
 
 /**
@@ -38,6 +39,23 @@ export const creditLoans = pgTable(
     accountId: uuid('account_id')
       .notNull()
       .references(() => accounts.id, { onDelete: 'restrict' }),
+    /**
+     * Set when the debt belongs to a business rather than to me personally —
+     * stock bought on terms, equipment financed for the shop.
+     *
+     * Stamped onto every repayment this loan generates, exactly as
+     * `recurringRules.businessId` is. That single column is what puts the
+     * repayment in the business's books: a tagged expense is a COST, so it
+     * leaves personal spending and lands in the business's net cash, with no
+     * second discriminator to keep honest.
+     *
+     * `set null` rather than cascade, to match every other business tag in the
+     * ledger: deleting a business must never delete the record of money that
+     * really was borrowed and really was repaid.
+     */
+    businessId: uuid('business_id').references(() => businesses.id, {
+      onDelete: 'set null',
+    }),
     note: text('note'),
     /** Set when the owner closes it early; otherwise settlement is derived. */
     closedAt: day('closed_at'),
@@ -46,6 +64,11 @@ export const creditLoans = pgTable(
   },
   (t) => [
     index('credit_loans_due_idx').on(t.dueDate),
+    // Partial, like `transactions_business_idx`: most loans are personal, and
+    // this index only ever serves `business_id is not null` lookups.
+    index('credit_loans_business_idx')
+      .on(t.businessId)
+      .where(sql`business_id is not null`),
     check('credit_loans_principal_positive', sql`${t.principalCentavos} > 0`),
   ],
 );

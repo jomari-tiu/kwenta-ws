@@ -451,6 +451,18 @@ export async function removeEntry(
 ): Promise<TBusiness> {
   const business = await repo.findBusinessById(id);
   if (!business) throw notFound('Business not found');
+
+  // A loan repayment is a business cost, so it shows up in this list — but the
+  // loan's outstanding balance is DERIVED from these rows. Deleting one here
+  // would silently move what is still owed, from a screen that shows no loan.
+  // Same guard, and same reason, as in transactions.service.remove.
+  const creditLoanId = await repo.creditLoanIdOfEntry(id, entryId);
+  if (creditLoanId) {
+    throw conflict(
+      'This cost is a credit-loan repayment. Remove it from the Credit Loans module instead, so the loan balance follows.',
+    );
+  }
+
   // An entry is either a ledger row or an earmark, and the id alone does not
   // say which. Try the ledger first, then the earmarks.
   const deleted =
